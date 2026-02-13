@@ -51,6 +51,9 @@ let timerDisplay = null;
 let roomDataListener = null;
 
 window.onload = function() {
+    // Populate teams immediately
+    populateTeamSelect();
+    
     loadPlayersFromCSV().then(() => {
         console.log('✅ App initialized');
         
@@ -85,6 +88,35 @@ window.onload = function() {
         }
     });
 };
+
+function populateTeamSelect() {
+    const select = document.getElementById('teamSelect');
+    if (!select) {
+        console.error('❌ Team select element not found');
+        return;
+    }
+    
+    // Clear all existing options
+    select.innerHTML = '';
+    
+    // Add placeholder
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a team...';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+    
+    // Add all teams
+    teams.forEach(team => {
+        const option = document.createElement('option');
+        option.value = team.name;
+        option.textContent = team.name;
+        select.appendChild(option);
+    });
+    
+    console.log('✅ Populated team select with', teams.length, 'teams');
+}
 
 async function loadPlayersFromCSV() {
     try {
@@ -1241,15 +1273,3 @@ window.refreshData = function() {
     renderHistory();
     renderParticipants();
 }
-
-setTimeout(() => {
-    const select = document.getElementById('teamSelect');
-    if (select) {
-        teams.forEach(team => {
-            const option = document.createElement('option');
-            option.value = team.name;
-            option.textContent = team.name;
-            select.appendChild(option);
-        });
-    }
-}, 500);
