@@ -49,6 +49,7 @@ let timeRemaining = 15;
 let lastBidTime = null;
 let timerDisplay = null;
 let roomDataListener = null;
+let auctionResolving = false;
 
 window.onload = function() {
     // Populate teams immediately
@@ -920,7 +921,9 @@ function updateTimerDisplay() {
 
 async function autoSellPlayer() {
 
-    if (!currentPlayerOnAuction || !currentRoomId) return;
+    if (!currentPlayerOnAuction || !currentRoomId || auctionResolving) return;
+    auctionResolving = true;
+
 
     console.log("⏰ Auto-sell triggered");
 
@@ -1002,6 +1005,8 @@ async function autoSellPlayer() {
     await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
 
     resetAuction();
+    auctionResolving = false;
+
 }
 
 
@@ -1266,50 +1271,89 @@ window.placeBid = async function() {
 }
 
 window.soldPlayer = async function() {
-    if (!isHost) {
-        alert('Only the host can mark players as sold!');
-        return;
+
+    if (auctionResolving) return;
+    auctionResolving = true;
+
+    try {
+
+        if (!isHost) {
+            alert('Only the host can mark players as sold!');
+            return;
+        }
+        
+        if (!currentPlayerOnAuction) {
+            alert('No player on auction!');
+            return;
+        }
+        
+        if (!highestBidder) {
+            alert('No bids placed yet!');
+            return;
+        }
+        
+        const team = teams.find(t => t.name === highestBidder);
+
+        if (!team) {
+            console.error("❌ Invalid highestBidder:", highestBidder);
+            return;
+        }
+        
+        if (Number(team.purse) < Number(currentBid)) {
+            alert('Insufficient purse!');
+            return;
+        }
+        
+        stopAuctionTimer();
+        
+        team.purse = Number(team.purse) - Number(currentBid);
+        team.spent = Number(team.spent || 0) + Number(currentBid);
+
+        team.players = team.players || [];
+        team.players.push({
+            name: currentPlayerOnAuction.name,
+            role: currentPlayerOnAuction.role,
+            price: currentBid,
+            photoUrl: currentPlayerOnAuction.photoUrl || ''
+        });
+        
+        const playerIndex = players.findIndex(
+            p => Number(p.id) === Number(currentPlayerOnAuction.id)
+        );
+
+        if (playerIndex === -1) {
+            console.error("❌ Player not found:", currentPlayerOnAuction.id);
+            return;
+        }
+
+        players[playerIndex] = {
+            ...players[playerIndex],
+            status: 'sold',
+            soldTo: highestBidder,
+            soldPrice: currentBid
+        };
+        
+        await addToHistory(
+            `${currentPlayerOnAuction.name} SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
+            'sold'
+        );
+
+        speak(`${currentPlayerOnAuction.name} sold to ${highestBidder}!`);
+        
+        await saveToFirebase();
+
+        currentPlayerOnAuction = null;
+        
+        await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+
+        resetAuction();
+
+    } finally {
+
+        auctionResolving = false;
     }
-    
-    if (!currentPlayerOnAuction) {
-        alert('No player on auction!');
-        return;
-    }
-    
-    if (!highestBidder) {
-        alert('No bids placed yet!');
-        return;
-    }
-    
-    const team = teams.find(t => t.name === highestBidder);
-    
-    if (team.purse < currentBid) {
-        alert('Insufficient purse!');
-        return;
-    }
-    
-    stopAuctionTimer();
-    
-    team.purse -= currentBid;
-    team.spent += currentBid;
-    team.players.push({
-        name: currentPlayerOnAuction.name,
-        role: currentPlayerOnAuction.role,
-        price: currentBid
-    });
-    
-    const playerIndex = players.findIndex(p => p.id === currentPlayerOnAuction.id);
-    players[playerIndex].status = 'sold';
-    players[playerIndex].soldTo = highestBidder;
-    players[playerIndex].soldPrice = currentBid;
-    
-    await addToHistory(`${currentPlayerOnAuction.name} SOLD to ${highestBidder} for ₹${currentBid.toFixed(1)}Cr`, 'sold');
-    speak(`${currentPlayerOnAuction.name} sold to ${highestBidder}!`);
-    
-    await saveToFirebase();
-    await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-    resetAuction();
-}
+};
+
 
 window.unsoldPlayer = async function() {
     if (!isHost) {
