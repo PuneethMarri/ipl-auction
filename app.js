@@ -50,24 +50,8 @@ let lastBidTime = null;
 let timerDisplay = null;
 let roomDataListener = null;
 
-// Populate teams as soon as DOM is ready
-document.addEventListener('DOMContentLoaded', function() {
-    console.log('🔄 DOM ready - populating teams...');
-    setTimeout(() => {
-        const select = document.getElementById('teamSelect');
-        if (select) {
-            console.log('✅ Team select found, teams array has', teams.length, 'teams');
-            populateTeamSelect();
-        } else {
-            console.error('❌ Team select NOT found');
-        }
-    }, 100);
-});
-
 window.onload = function() {
-    console.log('🔄 Window loaded');
-    
-    // Try again to ensure teams are populated
+    // Populate teams immediately
     populateTeamSelect();
     
     loadPlayersFromCSV().then(() => {
@@ -754,8 +738,6 @@ function renderParticipants() {
         countDiv.innerHTML = `${readyCount}/${validCount} Ready`;
         container.appendChild(countDiv);
     }
-}
-    container.appendChild(countDiv);
 }
 
 function checkAllReady() {
