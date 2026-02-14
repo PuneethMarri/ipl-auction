@@ -402,10 +402,17 @@ window.joinRoom = async function() {
             return;
         }
         
-        team.owner = username;
-        await update(ref(database, `rooms/${roomId}`), {
-            teams: teams
+        const updatedTeams = teams.map(t => {
+            if (t.name === teamName) {
+                return { ...t, owner: username };
+            }
+            return t;
         });
+        await update(ref(database, `rooms/${roomId}`), {
+            teams: updatedTeams
+        });
+        teams = updatedTeams;
+
         currentUser = { team: teamName, username: username, isHost: false };
 
         
