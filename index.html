@@ -159,7 +159,7 @@
             color: #667eea;
         }
         
-        /* Participants Panel */
+        /* Participants Panel - NEW */
         .participants-panel {
             background: linear-gradient(145deg, #1e1e30, #252538);
             padding: 20px;
@@ -280,11 +280,6 @@
             border: 1px solid rgba(102, 126, 234, 0.2);
             max-height: 800px;
             overflow-y: auto;
-        }
-        
-        .teams-panel h3 {
-            color: #e0e0e0;
-            margin-bottom: 15px;
         }
         
         .team-card {
@@ -471,11 +466,6 @@
             overflow-y: auto;
         }
         
-        .players-panel h3 {
-            color: #e0e0e0;
-            margin-bottom: 15px;
-        }
-        
         .filters {
             margin-bottom: 15px;
         }
@@ -544,11 +534,6 @@
             overflow-y: auto;
         }
         
-        .history-panel h3 {
-            color: #e0e0e0;
-            margin-bottom: 15px;
-        }
-        
         .history-item {
             padding: 10px;
             background: linear-gradient(145deg, #2a2a3e, #323246);
@@ -579,22 +564,17 @@
             background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
         }
         
+        /* Input placeholder color */
+        .form-group input::placeholder,
+        .form-group select::placeholder {
+            color: #666;
+        }
+        
         /* Responsive */
         @media (max-width: 1024px) {
             .auction-grid {
                 grid-template-columns: 1fr;
             }
-        }
-        
-        /* Glow effects */
-        .glow {
-            box-shadow: 0 0 20px rgba(102, 126, 234, 0.3);
-        }
-        
-        /* Input placeholder color */
-        .form-group input::placeholder,
-        .form-group select::placeholder {
-            color: #666;
         }
     </style>
 </head>
@@ -663,7 +643,7 @@
                 </div>
             </div>
             
-            <!-- Participants Panel -->
+            <!-- Participants Panel - NEW -->
             <div class="participants-panel">
                 <h3>👥 Participants in Room</h3>
                 <div id="participantsList">
@@ -706,7 +686,7 @@
                 <!-- Current Player Panel -->
                 <div class="player-panel">
                     <div id="currentPlayerContainer">
-                        <p style="color: #888; font-size: 1.2em;">Click on a player or "Start Next Player" to begin</p>
+                        <p style="color: #999; font-size: 1.2em;">Click on a player or "Start Next Player" to begin</p>
                     </div>
                 </div>
                 
