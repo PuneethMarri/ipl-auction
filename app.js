@@ -415,7 +415,7 @@ window.joinRoom = async function() {
         
         console.log('Updating room with new participant:', username);
 
-        await update(ref(database, `rooms/${roomId}/participants/${participantId}`), {
+        await update(ref(database, `rooms/${roomId}/participants/${username}`), {
             team: teamName,
             ready: false,
             isHost: false,
