@@ -945,9 +945,14 @@ async function autoSellPlayer() {
 
 function renderTeams() {
     const container = document.getElementById('teamsList');
+    if (!container) return;
+
     container.innerHTML = '';
     
-    teams.forEach(team => {
+    (teams || []).forEach(team => {
+
+        if (!team) return;   // ⭐ prevents your crash
+
         const purse = Number(team.purse || 0);
         const spent = Number(team.spent || 0);
         const playersCount = (team.players || []).length;
@@ -980,6 +985,7 @@ function renderTeams() {
         container.appendChild(card);
     });
 }
+
 
 
 function showTeamDetails(team) {
