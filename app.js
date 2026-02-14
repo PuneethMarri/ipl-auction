@@ -283,6 +283,19 @@ window.createRoom = async function() {
     }
     
     try {
+        // Make sure players are loaded
+        if (allPlayers.length === 0) {
+            console.log('⏳ Waiting for players to load...');
+            await loadPlayersFromCSV();
+        }
+        
+        if (allPlayers.length === 0) {
+            alert('❌ No players loaded! Please check:\n1. Google Sheet is shared publicly\n2. Internet connection is working\n3. Refresh the page and try again');
+            return;
+        }
+        
+        console.log(`📊 ${allPlayers.length} players loaded, creating room...`);
+        
         const roomRef = ref(database, `rooms/${roomId}`);
         const snapshot = await get(roomRef);
         
@@ -299,8 +312,9 @@ window.createRoom = async function() {
         team.owner = username;
         currentUser = { team: teamName, username: username, isHost: true };
         
-        // Generate random sets
+        // Generate random sets from loaded players
         const playerSets = generatePlayerSets();
+        console.log(`✅ Generated ${playerSets.length} player sets`);
         
         participants[username] = {
             team: teamName,
@@ -312,10 +326,11 @@ window.createRoom = async function() {
             password: roomPassword,
             host: username,
             createdAt: Date.now(),
+            expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours from now
             teams: teams,
             playerSets: playerSets,
             currentSetNumber: 1,
-            currentSet: playerSets[0],
+            currentSet: playerSets[0] || [],
             auctionStarted: false,
             currentPlayer: null,
             history: [],
@@ -330,7 +345,7 @@ window.createRoom = async function() {
         
     } catch (error) {
         console.error('Error creating room:', error);
-        alert('Error creating room. Please try again.');
+        alert(`Error creating room: ${error.message}\n\nPlease check Firebase database rules are set correctly.`);
     }
 }
 
@@ -355,6 +370,14 @@ window.joinRoom = async function() {
         }
         
         const roomData = snapshot.val();
+        
+        // Check if room has expired (24 hours old)
+        if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
+            // Delete the expired room
+            await remove(roomRef);
+            alert('❌ This room has expired (rooms are deleted after 24 hours).\n\nPlease create a new room!');
+            return;
+        }
         
         if (roomData.password !== roomPassword) {
             alert('❌ Incorrect password!');
@@ -412,6 +435,14 @@ function setupFirebaseListeners() {
         
         const data = snapshot.val();
         
+        // Check if room expired
+        if (data.expiresAt && Date.now() > data.expiresAt) {
+            alert('⏰ This room has expired (24 hours old).\n\nRooms are automatically deleted after 1 day.');
+            remove(roomRef);
+            logout();
+            return;
+        }
+        
         teams = data.teams;
         renderTeams();
         updatePurse();
@@ -430,6 +461,7 @@ function setupFirebaseListeners() {
         
         console.log('📊 Current participants:', participants);
         console.log('👤 Current user:', currentUser);
+        console.log('🎮 Total participants:', Object.keys(participants).length);
         
         // Update current user's ready button state
         if (currentUser && participants[currentUser.username]) {
