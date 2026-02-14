@@ -37,13 +37,13 @@ let currentUser = null;
 let isHost = false;
 let currentRoomId = null;
 let currentRoomPassword = null;
-let currentParticipantId = null; // NEW: Unique ID for this user session
 let currentPlayerOnAuction = null;
 let currentBid = 0;
 let highestBidder = null;
 let voiceEnabled = true;
 let auctionHistory = [];
 let participants = {};
+let participantId = null;
 
 let auctionTimer = null;
 let timeRemaining = 15;
@@ -52,20 +52,11 @@ let timerDisplay = null;
 let roomDataListener = null;
 
 window.onload = function() {
+    // Populate teams immediately
+    populateTeamSelect();
+    
     loadPlayersFromCSV().then(() => {
         console.log('✅ App initialized');
-        
-        // Populate team select dropdown
-        const select = document.getElementById('teamSelect');
-        if (select) {
-            teams.forEach(team => {
-                const option = document.createElement('option');
-                option.value = team.name;
-                option.textContent = team.name;
-                select.appendChild(option);
-            });
-            console.log('✅ Team dropdown populated');
-        }
         
         // Check if URL has room parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -96,93 +87,58 @@ window.onload = function() {
                 console.log('🔗 Auto-filled room credentials from URL');
             }, 100);
         }
-        
-        // NEW: Check for existing session
-        checkExistingSession();
     });
 };
 
-// NEW: Generate unique participant ID
-function generateParticipantId() {
-    return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
-}
-
-// NEW: Setup presence detection for online/offline tracking
-function setupPresence(roomId, participantId, username) {
-    const participantRef = ref(database, `rooms/${roomId}/participants/${username}`);
+function populateTeamSelect() {
+    const select = document.getElementById('teamSelect');
+    if (!select) {
+        console.error('❌ Team select element not found');
+        return;
+    }
     
-    // Mark as online
-    update(participantRef, { 
-        isOnline: true,
-        participantId: participantId,
-        lastSeen: Date.now()
+    // Clear all existing options
+    select.innerHTML = '';
+    
+    // Add placeholder
+    const placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.textContent = 'Choose a team...';
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    select.appendChild(placeholder);
+    
+    // Add all teams
+    teams.forEach(team => {
+        const option = document.createElement('option');
+        option.value = team.name;
+        option.textContent = team.name;
+        select.appendChild(option);
     });
     
-    // Handle disconnect - mark as offline
-    const onlineRef = ref(database, `rooms/${roomId}/participants/${username}/isOnline`);
-    onDisconnect(onlineRef).set(false);
-    
-    const lastSeenRef = ref(database, `rooms/${roomId}/participants/${username}/lastSeen`);
-    onDisconnect(lastSeenRef).set(Date.now());
-    
-    console.log('✅ Presence detection setup for:', username);
-}
-
-// NEW: Check for existing session to restore on page reload
-function checkExistingSession() {
-    const savedRoomId = localStorage.getItem('iplRoomId');
-    const savedParticipantId = localStorage.getItem('iplParticipantId');
-    const savedUsername = localStorage.getItem('iplUsername');
-    const savedTeam = localStorage.getItem('iplTeam');
-    const savedIsHost = localStorage.getItem('iplIsHost') === 'true';
-    
-    if (savedRoomId && savedParticipantId && savedUsername && savedTeam) {
-        console.log('🔄 Found saved session, attempting to restore...');
-        
-        currentRoomId = savedRoomId;
-        currentParticipantId = savedParticipantId;
-        isHost = savedIsHost;
-        currentUser = { 
-            team: savedTeam, 
-            username: savedUsername, 
-            isHost: savedIsHost 
-        };
-        
-        // Restore presence
-        setupPresence(savedRoomId, savedParticipantId, savedUsername);
-        
-        // Show app
-        showApp();
-        setupFirebaseListeners();
-        
-        console.log('✅ Session restored!');
-    }
+    console.log('✅ Populated team select with', teams.length, 'teams');
 }
 
 async function loadPlayersFromCSV() {
     try {
-        // Google Sheets ID from the URL
-        const sheetId = '1i4NQmcynf76DoKbqestur9T3Bu4AI6Ka1AAh66winh8';
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+        console.log('📥 Loading players from CSV file...');
         
-        console.log('📥 Loading players from Google Sheets...');
-        
-        const response = await fetch(sheetUrl);
+        const response = await fetch('players.csv');
         
         if (!response.ok) {
-            throw new Error('Failed to fetch Google Sheet. Make sure it is shared publicly (Anyone with link can view).');
+            throw new Error('Failed to load players.csv file');
         }
         
         const csvText = await response.text();
         
         if (!csvText || csvText.trim().length === 0) {
-            throw new Error('Google Sheet is empty');
+            throw new Error('CSV file is empty');
         }
         
         const lines = csvText.trim().split('\n');
         
         if (lines.length < 2) {
-            throw new Error('Google Sheet has no player data');
+            throw new Error('CSV has no player data');
         }
         
         allPlayers = [];
@@ -215,14 +171,14 @@ async function loadPlayersFromCSV() {
         }
         
         if (allPlayers.length === 0) {
-            throw new Error('No valid players found in Google Sheet');
+            throw new Error('No valid players found in CSV');
         }
         
-        console.log(`✅ Loaded ${allPlayers.length} players from Google Sheets`);
+        console.log(`✅ Loaded ${allPlayers.length} players from CSV file`);
         
     } catch (error) {
-        console.error('❌ Error loading Google Sheet:', error);
-        alert(`Error loading players from Google Sheets:\n\n${error.message}\n\nPlease check:\n1. Sheet is shared publicly (Anyone with link can view)\n2. Internet connection is working\n3. Sheet has correct format`);
+        console.error('❌ Error loading CSV:', error);
+        alert(`Error loading players from CSV file:\n\n${error.message}\n\nMake sure players.csv is in the same folder as index.html!`);
         
         // Initialize with empty array to prevent crashes
         allPlayers = [];
@@ -324,6 +280,21 @@ window.createRoom = async function() {
     }
     
     try {
+        // Make sure players are loaded
+        if (allPlayers.length === 0) {
+            console.log('⏳ Waiting for players to load...');
+            await loadPlayersFromCSV();
+        }
+        
+        if (allPlayers.length === 0) {
+            alert('❌ No players loaded!\n\nPlayers.csv file is not loading.\n\nPossible fixes:\n1. Make sure players.csv is uploaded to GitHub\n2. Clear your browser cache (Ctrl+Shift+R)\n3. Check console (F12) for errors');
+            console.error('❌ CRITICAL: allPlayers is empty!');
+            console.error('Check if players.csv exists at:', window.location.origin + window.location.pathname.replace('index.html', '') + 'players.csv');
+            return;
+        }
+        
+        console.log(`📊 ${allPlayers.length} players loaded, creating room...`);
+        
         const roomRef = ref(database, `rooms/${roomId}`);
         const snapshot = await get(roomRef);
         
@@ -336,48 +307,45 @@ window.createRoom = async function() {
         currentRoomPassword = roomPassword;
         isHost = true;
         
-        // NEW: Generate unique participant ID
-        currentParticipantId = generateParticipantId();
-        
         const team = teams.find(t => t.name === teamName);
         team.owner = username;
         currentUser = { team: teamName, username: username, isHost: true };
         
-        // Generate random sets
-        const playerSets = generatePlayerSets();
+        // Generate unique participant ID
+        participantId = `${username}_${Date.now()}`;
         
-        participants[username] = {
+        // Generate random sets from loaded players
+        const playerSets = generatePlayerSets();
+        console.log(`✅ Generated ${playerSets.length} player sets`);
+        
+        // Initialize participants structure with presence tracking
+        participants = {};
+        participants[participantId] = {
+            username: username,
             team: teamName,
             ready: false,
             isHost: true,
-            isOnline: true, // NEW
-            participantId: currentParticipantId, // NEW
-            joinedAt: Date.now() // NEW
+            online: true,
+            joinedAt: Date.now()
         };
         
         await set(roomRef, {
             password: roomPassword,
             host: username,
             createdAt: Date.now(),
+            expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours from now
             teams: teams,
             playerSets: playerSets,
             currentSetNumber: 1,
-            currentSet: playerSets[0],
+            currentSet: playerSets[0] || [],
             auctionStarted: false,
             currentPlayer: null,
             history: [],
             participants: participants
         });
         
-        // NEW: Save session to localStorage
-        localStorage.setItem('iplRoomId', roomId);
-        localStorage.setItem('iplParticipantId', currentParticipantId);
-        localStorage.setItem('iplUsername', username);
-        localStorage.setItem('iplTeam', teamName);
-        localStorage.setItem('iplIsHost', 'true');
-        
-        // NEW: Setup presence detection
-        setupPresence(roomId, currentParticipantId, username);
+        // Setup presence system for disconnect detection
+        setupPresenceSystem();
         
         console.log('✅ Room created:', roomId);
         speak(`Welcome host ${username}! Waiting for players to join.`);
@@ -387,7 +355,7 @@ window.createRoom = async function() {
         
     } catch (error) {
         console.error('Error creating room:', error);
-        alert('Error creating room. Please try again.');
+        alert(`Error creating room: ${error.message}\n\nPlease check Firebase database rules are set correctly.`);
     }
 }
 
@@ -413,6 +381,14 @@ window.joinRoom = async function() {
         
         const roomData = snapshot.val();
         
+        // Check if room has expired (24 hours old)
+        if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
+            // Delete the expired room
+            await remove(roomRef);
+            alert('❌ This room has expired (rooms are deleted after 24 hours).\n\nPlease create a new room!');
+            return;
+        }
+        
         if (roomData.password !== roomPassword) {
             alert('❌ Incorrect password!');
             return;
@@ -422,55 +398,63 @@ window.joinRoom = async function() {
         currentRoomPassword = roomPassword;
         isHost = false;
         
-        // NEW: Generate unique participant ID
-        currentParticipantId = generateParticipantId();
-        
-        teams = roomData.teams;
+        // Get teams from room data
+        teams = roomData.teams || teams;
         const team = teams.find(t => t.name === teamName);
         
-        // NEW: Check if team is already taken by an ONLINE user
+        if (!team) {
+            alert(`❌ Team ${teamName} not found!`);
+            return;
+        }
+        
+        // Check if team is already taken
         participants = roomData.participants || {};
-        for (let user in participants) {
-            if (participants[user].team === teamName && participants[user].isOnline && user !== username) {
-                alert(`❌ ${teamName} is already taken by ${user} who is currently online!`);
-                return;
-            }
+        const teamTaken = Object.values(participants).some(p => p.team === teamName && p.online);
+        
+        if (teamTaken) {
+            const existingOwner = Object.values(participants).find(p => p.team === teamName && p.online);
+            alert(`❌ ${teamName} is already taken by ${existingOwner.username}!\n\nPlease choose a different team.`);
+            return;
         }
         
-        if (team.owner && team.owner !== username) {
-            team.owner = username;
-        } else {
-            team.owner = username;
-        }
-        
+        team.owner = username;
         currentUser = { team: teamName, username: username, isHost: false };
         
-        participants[username] = {
+        // Generate unique participant ID
+        participantId = `${username}_${Date.now()}`;
+        
+        // Check if username already exists and is online
+        const usernameTaken = Object.values(participants).some(p => 
+            p.username === username && p.online && p.team !== teamName
+        );
+        
+        if (usernameTaken) {
+            alert(`❌ Username "${username}" is already in use!\n\nPlease choose a different name.`);
+            return;
+        }
+        
+        // Add participant with presence tracking
+        participants[participantId] = {
+            username: username,
             team: teamName,
             ready: false,
             isHost: false,
-            isOnline: true, // NEW
-            participantId: currentParticipantId, // NEW
-            joinedAt: Date.now() // NEW
+            online: true,
+            joinedAt: Date.now()
         };
+        
+        console.log('Updating room with new participant:', username);
         
         await update(ref(database, `rooms/${roomId}`), {
             teams: teams,
             participants: participants
         });
         
-        // NEW: Save session to localStorage
-        localStorage.setItem('iplRoomId', roomId);
-        localStorage.setItem('iplParticipantId', currentParticipantId);
-        localStorage.setItem('iplUsername', username);
-        localStorage.setItem('iplTeam', teamName);
-        localStorage.setItem('iplIsHost', 'false');
+        // Setup presence system for disconnect detection
+        setupPresenceSystem();
         
-        // NEW: Setup presence detection
-        setupPresence(roomId, currentParticipantId, username);
-        
-        // NEW: Add join notification
-        await addToHistory(`🎉 ${username} joined the auction!`, 'join');
+        // Announce join
+        await addToHistory(`${username} joined as ${teamName}`, 'info');
         
         console.log('✅ Joined room:', roomId);
         speak(`Welcome ${username}! Click Ready when you're set.`);
@@ -480,16 +464,32 @@ window.joinRoom = async function() {
         
     } catch (error) {
         console.error('Error joining room:', error);
-        alert('Error joining room. Please try again.');
+        alert(`Error joining room: ${error.message}\n\nPlease try again or check your internet connection.`);
     }
+}
+
+// Setup presence system to track online/offline status
+function setupPresenceSystem() {
+    if (!currentRoomId || !participantId) return;
+    
+    const participantRef = ref(database, `rooms/${currentRoomId}/participants/${participantId}`);
+    
+    // When user disconnects, mark as offline
+    onDisconnect(participantRef).update({
+        online: false,
+        leftAt: Date.now()
+    });
+    
+    // Set online status
+    update(participantRef, {
+        online: true
+    });
+    
+    console.log('✅ Presence system setup for participant:', participantId);
 }
 
 function setupFirebaseListeners() {
     const roomRef = ref(database, `rooms/${currentRoomId}`);
-    
-    // NEW: Track previous participants state for join/leave notifications
-    let previousParticipants = {};
-    let isFirstLoad = true;
     
     roomDataListener = onValue(roomRef, (snapshot) => {
         if (!snapshot.exists()) {
@@ -500,6 +500,14 @@ function setupFirebaseListeners() {
         
         const data = snapshot.val();
         
+        // Check if room expired
+        if (data.expiresAt && Date.now() > data.expiresAt) {
+            alert('⏰ This room has expired (24 hours old).\n\nRooms are automatically deleted after 1 day.');
+            remove(roomRef);
+            logout();
+            return;
+        }
+        
         teams = data.teams;
         renderTeams();
         updatePurse();
@@ -507,54 +515,40 @@ function setupFirebaseListeners() {
         currentSet = data.currentSet || [];
         currentSetNumber = data.currentSetNumber || 1;
         players = currentSet;
-        renderPlayers();
-        updateStats();
+        
+        // Only render if we have players
+        if (players && players.length > 0) {
+            renderPlayers();
+            updateStats();
+        } else {
+            console.warn('⚠️ No players in current set');
+            const container = document.getElementById('playersList');
+            if (container) {
+                container.innerHTML = '<p style="text-align: center; color: #888; padding: 20px;">No players loaded yet. Waiting for host to start...</p>';
+            }
+        }
         
         auctionHistory = data.history || [];
         renderHistory();
         
+        // Track previous participants for join/leave notifications
+        const previousParticipants = { ...participants };
         participants = data.participants || {};
         
-        // NEW: Detect participant changes and show notifications
-        if (!isFirstLoad) {
-            for (let username in participants) {
-                const participant = participants[username];
-                const prevParticipant = previousParticipants[username];
-                
-                // New participant joined
-                if (!prevParticipant && participant.isOnline) {
-                    if (username !== currentUser.username) {
-                        showNotification(`🎉 ${username} joined the auction!`, 'join');
-                    }
-                }
-                // Participant went online
-                else if (prevParticipant && !prevParticipant.isOnline && participant.isOnline) {
-                    if (username !== currentUser.username) {
-                        showNotification(`🟢 ${username} is back online!`, 'online');
-                    }
-                }
-                // Participant went offline
-                else if (prevParticipant && prevParticipant.isOnline && !participant.isOnline) {
-                    if (username !== currentUser.username) {
-                        showNotification(`⚫ ${username} went offline`, 'offline');
-                    }
-                }
-            }
-        }
-        
-        previousParticipants = JSON.parse(JSON.stringify(participants)); // Deep copy
-        isFirstLoad = false;
+        // Check for new joins or leaves
+        checkParticipantChanges(previousParticipants, participants);
         
         renderParticipants();
         
         console.log('📊 Current participants:', participants);
         console.log('👤 Current user:', currentUser);
+        console.log('🎮 Total participants:', Object.keys(participants).length);
         
         // Update current user's ready button state
-        if (currentUser && participants[currentUser.username]) {
+        if (currentUser && participantId && participants[participantId]) {
             const readyBtn = document.getElementById('readyBtn');
             if (readyBtn) {
-                const isReady = participants[currentUser.username].ready || false;
+                const isReady = participants[participantId].ready || false;
                 readyBtn.textContent = isReady ? '✅ Ready!' : '⏸️ Not Ready';
                 readyBtn.style.background = isReady ? '#4CAF50' : '#ff9800';
             }
@@ -599,6 +593,57 @@ function setupFirebaseListeners() {
     console.log('✅ Firebase listeners setup');
 }
 
+// Check for participant changes and show notifications
+function checkParticipantChanges(previous, current) {
+    if (!previous || Object.keys(previous).length === 0) return;
+    
+    // Check for new joins (online participants that weren't in previous)
+    Object.keys(current).forEach(pid => {
+        if (current[pid].online && (!previous[pid] || !previous[pid].online)) {
+            // Someone joined or came online
+            if (pid !== participantId) { // Don't notify for self
+                showNotification(`${current[pid].username} joined the room`, 'join');
+            }
+        }
+    });
+    
+    // Check for leaves (was online, now offline)
+    Object.keys(previous).forEach(pid => {
+        if (previous[pid].online && current[pid] && !current[pid].online) {
+            // Someone left or went offline
+            if (pid !== participantId) { // Don't notify for self
+                showNotification(`${previous[pid].username} left the room`, 'leave');
+            }
+        }
+    });
+}
+
+// Show notification toast
+function showNotification(message, type) {
+    const notification = document.createElement('div');
+    notification.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        padding: 15px 25px;
+        background: ${type === 'join' ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : 'linear-gradient(135deg, #ff9800 0%, #f57c00 100%)'};
+        color: white;
+        border-radius: 10px;
+        font-weight: bold;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        z-index: 10000;
+        animation: slideInRight 0.3s ease-out;
+    `;
+    notification.textContent = `${type === 'join' ? '➕' : '➖'} ${message}`;
+    
+    document.body.appendChild(notification);
+    
+    setTimeout(() => {
+        notification.style.animation = 'slideOutRight 0.3s ease-out';
+        setTimeout(() => notification.remove(), 300);
+    }, 3000);
+}
+
 function showApp() {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('appContainer').style.display = 'block';
@@ -610,8 +655,8 @@ function showApp() {
     
     // Initialize ready button state
     const readyBtn = document.getElementById('readyBtn');
-    if (readyBtn && participants[currentUser.username]) {
-        const isReady = participants[currentUser.username].ready;
+    if (readyBtn && participantId && participants[participantId]) {
+        const isReady = participants[participantId].ready;
         readyBtn.textContent = isReady ? '✅ Ready!' : '⏸️ Not Ready';
         readyBtn.style.background = isReady ? '#4CAF50' : '#ff9800';
     }
@@ -628,33 +673,6 @@ function showApp() {
     updatePurse();
     renderHistory();
     renderParticipants();
-}
-
-// NEW: Show notification in the auction history for participant events
-function showNotification(message, type = 'info') {
-    const historyContainer = document.getElementById('historyList');
-    if (!historyContainer) return;
-    
-    const div = document.createElement('div');
-    div.style.cssText = `
-        padding: 12px; 
-        margin: 8px 0; 
-        background: ${type === 'join' ? 'rgba(76, 175, 80, 0.2)' : type === 'offline' ? 'rgba(255, 152, 0, 0.2)' : 'rgba(33, 150, 243, 0.2)'}; 
-        border-left: 4px solid ${type === 'join' ? '#4CAF50' : type === 'offline' ? '#ff9800' : '#2196F3'}; 
-        border-radius: 8px; 
-        color: #fff;
-        font-size: 0.95em;
-    `;
-    div.innerHTML = `
-        <span style="color: #888; font-size: 0.85em;">${new Date().toLocaleTimeString()}</span> - ${message}
-    `;
-    
-    historyContainer.insertBefore(div, historyContainer.firstChild);
-    
-    // Also speak the notification if voice is enabled
-    if (voiceEnabled && type === 'join') {
-        speak(message);
-    }
 }
 
 window.shareRoom = function() {
@@ -784,19 +802,20 @@ Let's start bidding! 🎉`;
 
 window.logout = function() {
     if (confirm('Are you sure you want to logout?')) {
+        // Mark participant as offline before leaving
+        if (currentRoomId && participantId) {
+            update(ref(database, `rooms/${currentRoomId}/participants/${participantId}`), {
+                online: false,
+                leftAt: Date.now()
+            });
+        }
+        
         if (roomDataListener) roomDataListener();
         if (auctionTimer) clearInterval(auctionTimer);
         
-        // NEW: Clear localStorage session
-        localStorage.removeItem('iplRoomId');
-        localStorage.removeItem('iplParticipantId');
-        localStorage.removeItem('iplUsername');
-        localStorage.removeItem('iplTeam');
-        localStorage.removeItem('iplIsHost');
-        
         currentUser = null;
         currentRoomId = null;
-        currentParticipantId = null; // NEW
+        participantId = null;
         isHost = false;
         
         document.getElementById('loginScreen').style.display = 'flex';
@@ -807,27 +826,14 @@ window.logout = function() {
 }
 
 window.toggleReady = async function() {
-    if (!currentUser || !currentRoomId) return;
+    if (!currentUser || !currentRoomId || !participantId) return;
     
-    const currentReady = participants[currentUser.username]?.ready || false;
+    const currentReady = participants[participantId]?.ready || false;
     const newReady = !currentReady;
     
-    // Update locally first
-    if (!participants[currentUser.username]) {
-        participants[currentUser.username] = {
-            team: currentUser.team,
-            ready: newReady,
-            isHost: isHost
-        };
-    } else {
-        participants[currentUser.username].ready = newReady;
-    }
-    
     // Update in Firebase
-    await update(ref(database, `rooms/${currentRoomId}/participants/${currentUser.username}`), {
-        ready: newReady,
-        team: currentUser.team,
-        isHost: isHost
+    await update(ref(database, `rooms/${currentRoomId}/participants/${participantId}`), {
+        ready: newReady
     });
     
     // Update button UI
@@ -853,83 +859,91 @@ function renderParticipants() {
     
     let validCount = 0;
     let readyCount = 0;
-    let onlineCount = 0; // NEW
+    let onlineCount = 0;
     
-    Object.keys(participants).forEach(username => {
-        const p = participants[username];
-        if (!p || typeof p !== 'object') return; // Skip invalid entries
-        
+    // Filter and sort participants
+    const participantList = Object.entries(participants)
+        .filter(([pid, p]) => p && typeof p === 'object')
+        .sort(([pidA, a], [pidB, b]) => {
+            // Sort: host first, then by online status, then by join time
+            if (a.isHost !== b.isHost) return a.isHost ? -1 : 1;
+            if (a.online !== b.online) return a.online ? -1 : 1;
+            return (a.joinedAt || 0) - (b.joinedAt || 0);
+        });
+    
+    participantList.forEach(([pid, p]) => {
         validCount++;
-        if (p.ready) readyCount++;
-        if (p.isOnline) onlineCount++; // NEW
+        if (p.ready && p.online) readyCount++;
+        if (p.online) onlineCount++;
         
         const div = document.createElement('div');
-        const isCurrentUser = currentUser && username === currentUser.username;
-        const isOnline = p.isOnline === true; // NEW
-        
-        // NEW: Different styling for online/offline
         div.style.cssText = `
-            padding: 10px; 
-            margin: 8px 0; 
-            background: ${isCurrentUser ? 'rgba(212, 175, 55, 0.2)' : (isOnline ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.15)')}; 
-            border-radius: 8px; 
-            display: flex; 
-            justify-content: space-between; 
-            align-items: center; 
-            border: 2px solid ${isCurrentUser ? '#d4af37' : (isOnline ? '#333' : '#222')};
-            ${!isOnline ? 'opacity: 0.6;' : ''}
+            padding: 12px;
+            margin: 8px 0;
+            background: ${p.online ? 'rgba(76, 175, 80, 0.1)' : 'rgba(68, 68, 68, 0.3)'};
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 2px solid ${p.online ? '#4CAF50' : '#666'};
+            opacity: ${p.online ? '1' : '0.5'};
+            transition: all 0.3s;
         `;
+        
+        const isCurrentUser = participantId && pid === participantId;
+        if (isCurrentUser) {
+            div.style.borderColor = '#d4af37';
+            div.style.boxShadow = '0 0 15px rgba(212, 175, 55, 0.3)';
+        }
+        
+        const statusDot = p.online ? '🟢' : '⚫';
+        const hostIcon = p.isHost ? '👑 ' : '';
+        const youLabel = isCurrentUser ? ' <span style="color: #d4af37;">(You)</span>' : '';
         
         div.innerHTML = `
             <div>
-                <div style="font-weight: bold; color: #fff;">
-                    ${isOnline ? '🟢' : '⚫'} ${p.isHost ? '👑' : '👤'} ${username}${isCurrentUser ? ' <span style="color: #d4af37;">(You)</span>' : ''}
+                <div style="font-weight: bold; color: #fff; display: flex; align-items: center; gap: 5px;">
+                    ${statusDot} ${hostIcon}${p.username}${youLabel}
                 </div>
                 <div style="font-size: 0.85em; color: #888; margin-top: 3px;">
                     ${p.team || 'No team'}
                 </div>
-                <div style="font-size: 0.75em; color: ${isOnline ? '#4CAF50' : '#999'}; margin-top: 2px;">
-                    ${isOnline ? 'Online' : 'Offline'}
-                </div>
             </div>
             <span style="color: ${p.ready ? '#4CAF50' : '#ff9800'}; font-weight: bold; font-size: 0.9em;">
-                ${p.ready ? '✅ Ready' : '⏸️ Not Ready'}
+                ${p.online ? (p.ready ? '✅ Ready' : '⏸️ Not Ready') : '💤 Offline'}
             </span>
         `;
         container.appendChild(div);
     });
     
-    // Show count - NEW: Include online count
-    if (validCount > 0) {
-        const countDiv = document.createElement('div');
-        countDiv.style.cssText = 'text-align: center; color: #888; margin-top: 15px; padding-top: 15px; border-top: 2px solid #444; font-size: 0.9em;';
-        countDiv.innerHTML = `
-            <div>${onlineCount}/${validCount} Online</div>
-            <div style="margin-top: 5px;">${readyCount}/${validCount} Ready</div>
-        `;
-        container.appendChild(countDiv);
-    }
+    // Add summary footer
+    const summary = document.createElement('div');
+    summary.style.cssText = 'margin-top: 15px; padding-top: 15px; border-top: 2px solid #444; text-align: center; color: #888; font-size: 0.9em;';
+    summary.innerHTML = `
+        <div style="display: flex; justify-content: space-around; flex-wrap: wrap; gap: 10px;">
+            <span>👥 Total: <strong style="color: #d4af37;">${validCount}</strong></span>
+            <span>🟢 Online: <strong style="color: #4CAF50;">${onlineCount}</strong></span>
+            <span>✅ Ready: <strong style="color: #4CAF50;">${readyCount}</strong>/<strong style="color: #fff;">${onlineCount}</strong></span>
+        </div>
+    `;
+    container.appendChild(summary);
 }
 
 function checkAllReady() {
-    if (!participants || typeof participants !== 'object') {
-        console.log('No participants object');
-        return;
-    }
+    if (!participants || typeof participants !== 'object') return;
     
-    const participantList = Object.values(participants).filter(p => p != null && typeof p === 'object');
+    const participantList = Object.values(participants).filter(p => p && typeof p === 'object' && p.online);
     
-    if (participantList.length === 0) {
-        console.log('No valid participants');
-        return;
-    }
+    if (participantList.length === 0) return;
     
-    const allReady = participantList.every(p => p.ready === true);
-    const hasPlayers = participantList.length > 1;
+    const allReady = participantList.every(p => p.ready);
+    const hasPlayers = players && players.length > 0;
     
-    console.log(`Checking ready: ${participantList.filter(p => p.ready).length}/${participantList.length} ready, hasPlayers: ${hasPlayers}, allReady: ${allReady}`);
-    
-    if (allReady && hasPlayers && !document.getElementById('startAuctionPopup')) {
+    if (allReady && hasPlayers && participantList.length > 0) {
+        // Remove any existing popup first
+        const existingPopup = document.getElementById('startAuctionPopup');
+        if (existingPopup) return; // Already showing
+        
         // Show popup to host
         const popup = document.createElement('div');
         popup.id = 'startAuctionPopup';
@@ -940,15 +954,12 @@ function checkAllReady() {
                 <p style="color: #fff; margin-bottom: 15px; font-size: 1.2em;">
                     <strong>${participantList.length} participants</strong> are ready to start!
                 </p>
-                <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0;">
-                    ${participantList.map(p => {
-                        const username = Object.keys(participants).find(k => participants[k] === p);
-                        return `
-                            <div style="padding: 8px; color: ${p.isHost ? '#d4af37' : '#fff'};">
-                                ${p.isHost ? '👑' : '👤'} ${username} - ${p.team}
-                            </div>
-                        `;
-                    }).join('')}
+                <div style="background: rgba(0,0,0,0.3); padding: 20px; border-radius: 10px; margin: 20px 0; max-height: 200px; overflow-y: auto;">
+                    ${participantList.map(p => `
+                        <div style="padding: 8px; color: ${p.isHost ? '#d4af37' : '#fff'};">
+                            ${p.isHost ? '👑' : '👤'} ${p.username} - ${p.team}
+                        </div>
+                    `).join('')}
                 </div>
                 <button onclick="startAuction()" style="width: 100%; padding: 25px; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); border: none; border-radius: 12px; color: white; font-size: 1.5em; font-weight: bold; cursor: pointer; margin-top: 20px; box-shadow: 0 10px 30px rgba(76, 175, 80, 0.4); transition: all 0.3s;">
                     🚀 START AUCTION NOW
@@ -1116,19 +1127,20 @@ function showTeamDetails(team) {
                     <strong style="color: #fff;">₹${team.spent.toFixed(1)}Cr</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin: 8px 0;">
-                    <span style="color: #888;">Total Players:</span>
+                    <span style="color: #888;">Players:</span>
                     <strong style="color: #fff;">${team.players.length}</strong>
                 </div>
             </div>
-            <h3 style="color: #d4af37; margin-bottom: 15px;">Squad:</h3>
+            <h3 style="color: #d4af37; margin-bottom: 10px;">Squad</h3>
             ${playersHTML}
-            <button onclick="this.parentElement.parentElement.remove()" style="width: 100%; padding: 15px; margin-top: 20px; background: #ff4444; border: none; border-radius: 10px; color: white; font-size: 1.1em; font-weight: bold; cursor: pointer;">
+            <button onclick="this.parentElement.parentElement.remove()" style="width: 100%; margin-top: 20px; padding: 15px; background: #ff4444; border: none; border-radius: 10px; color: white; font-size: 1.1em; font-weight: bold; cursor: pointer;">
                 Close
             </button>
         </div>
     `;
     
     document.body.appendChild(modal);
+    
     modal.onclick = (e) => {
         if (e.target === modal) modal.remove();
     };
@@ -1138,38 +1150,51 @@ function renderPlayers() {
     const container = document.getElementById('playersList');
     container.innerHTML = '';
     
-    const roleFilter = document.getElementById('roleFilter').value;
-    const statusFilter = document.getElementById('statusFilter').value;
+    const roleFilter = document.getElementById('roleFilter')?.value || 'all';
+    const statusFilter = document.getElementById('statusFilter')?.value || 'all';
     
-    let filteredPlayers = players.filter(player => {
-        const roleMatch = roleFilter === 'all' || player.role === roleFilter;
-        const statusMatch = statusFilter === 'all' || player.status === statusFilter;
-        return roleMatch && statusMatch;
-    });
+    let filteredPlayers = players || [];
+    
+    if (roleFilter !== 'all') {
+        filteredPlayers = filteredPlayers.filter(p => p.role === roleFilter);
+    }
+    
+    if (statusFilter !== 'all') {
+        filteredPlayers = filteredPlayers.filter(p => p.status === statusFilter);
+    }
+    
+    if (filteredPlayers.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No players match the filters</p>';
+        return;
+    }
     
     filteredPlayers.forEach(player => {
         const card = document.createElement('div');
-        card.className = `player-item ${player.status}`;
-        
-        let statusBadge = '';
-        if (player.status === 'sold') {
-            statusBadge = `<span class="status-badge sold">SOLD - ${player.soldTo} (₹${player.soldPrice.toFixed(1)}Cr)</span>`;
-        } else {
-            statusBadge = `<span class="status-badge unsold">Available</span>`;
-        }
+        card.className = 'player-card';
+        card.style.borderLeftColor = player.status === 'sold' ? '#4CAF50' : '#d4af37';
         
         card.innerHTML = `
-            <strong>${player.name}</strong>
-            <div style="font-size: 0.85em; color: #888; margin: 5px 0;">
-                ${player.role} • ${player.country} • ₹${player.basePrice}Cr
+            <h3>${player.name}</h3>
+            <div class="player-info">
+                <span>Role:</span> <strong>${player.role}</strong>
             </div>
-            ${statusBadge}
+            <div class="player-info">
+                <span>Country:</span> <strong>${player.country}</strong>
+            </div>
+            <div class="player-info">
+                <span>Base Price:</span> <strong>₹${player.basePrice}Cr</strong>
+            </div>
+            ${player.status === 'sold' ? `
+                <div style="margin-top: 10px; padding: 10px; background: rgba(76, 175, 80, 0.2); border-radius: 5px; border: 1px solid #4CAF50;">
+                    <div class="player-info">
+                        <span>Sold To:</span> <strong style="color: #4CAF50;">${player.soldTo}</strong>
+                    </div>
+                    <div class="player-info">
+                        <span>Price:</span> <strong style="color: #4CAF50;">₹${player.soldPrice.toFixed(1)}Cr</strong>
+                    </div>
+                </div>
+            ` : ''}
         `;
-        
-        if (player.status === 'unsold' && isHost) {
-            card.style.cursor = 'pointer';
-            card.onclick = () => selectPlayer(player);
-        }
         
         container.appendChild(card);
     });
@@ -1180,11 +1205,6 @@ window.filterPlayers = function() {
 }
 
 async function selectPlayer(player) {
-    if (!isHost) {
-        alert('Only the host can select players!');
-        return;
-    }
-    
     if (player.status !== 'unsold') {
         alert('This player has already been sold!');
         return;
@@ -1195,17 +1215,15 @@ async function selectPlayer(player) {
     highestBidder = null;
     lastBidTime = Date.now();
     
-    await set(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
+    await update(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
         id: player.id,
+        name: player.name,
         currentBid: currentBid,
         highestBidder: highestBidder,
         lastBidTime: lastBidTime
     });
     
-    displayCurrentPlayer();
-    startAuctionTimer();
-    
-    speak(`Now on auction: ${player.name}, ${player.role} from ${player.country}.`);
+    speak(`Now on auction: ${player.name}`);
 }
 
 function displayCurrentPlayer() {
@@ -1213,11 +1231,10 @@ function displayCurrentPlayer() {
     document.getElementById('noPlayerMessage').style.display = 'none';
     
     const playerNameEl = document.getElementById('playerName');
-    
-    if (currentPlayerOnAuction.photoUrl) {
+    if (currentPlayerOnAuction.country !== 'India') {
         playerNameEl.innerHTML = `
-            <img src="${currentPlayerOnAuction.photoUrl}" alt="${currentPlayerOnAuction.name}" 
-                 style="width: 120px; height: 120px; border-radius: 50%; object-fit: cover; display: block; margin: 0 auto 20px; border: 4px solid #d4af37; box-shadow: 0 0 30px rgba(212, 175, 55, 0.5);">
+            <img src="https://flagcdn.com/w40/${getCountryCode(currentPlayerOnAuction.country).toLowerCase()}.png" 
+                 style="width: 30px; height: 20px; margin-right: 8px; vertical-align: middle;">
             ${currentPlayerOnAuction.name}
         `;
     } else {
@@ -1231,6 +1248,17 @@ function displayCurrentPlayer() {
     document.getElementById('currentBidAmount').textContent = `₹${currentBid.toFixed(1)}Cr`;
     document.getElementById('highestBidder').textContent = highestBidder || 'None';
     document.getElementById('currentSetInfo').textContent = `Set ${currentSetNumber} • Player ${players.filter(p => p.status === 'sold').length + 1}/${players.length}`;
+}
+
+function getCountryCode(country) {
+    const codes = {
+        'India': 'IN', 'Australia': 'AU', 'England': 'GB', 'South Africa': 'ZA',
+        'New Zealand': 'NZ', 'West Indies': 'WI', 'Pakistan': 'PK', 'Sri Lanka': 'LK',
+        'Bangladesh': 'BD', 'Afghanistan': 'AF', 'Ireland': 'IE', 'Zimbabwe': 'ZW',
+        'Netherlands': 'NL', 'Scotland': 'GB-SCT', 'UAE': 'AE', 'Nepal': 'NP',
+        'Oman': 'OM', 'PNG': 'PG', 'USA': 'US', 'Canada': 'CA'
+    };
+    return codes[country] || 'IN';
 }
 
 window.startNextPlayer = async function() {
@@ -1392,12 +1420,29 @@ function renderHistory() {
 }
 
 function updateStats() {
-    document.getElementById('totalPlayers').textContent = players.length;
-    document.getElementById('playersSold').textContent = players.filter(p => p.status === 'sold').length;
-    document.getElementById('playersRemaining').textContent = players.filter(p => p.status === 'unsold').length;
+    const totalPlayersEl = document.getElementById('totalPlayers');
+    const playersSoldEl = document.getElementById('playersSold');
+    const playersRemainingEl = document.getElementById('playersRemaining');
+    const totalSpentEl = document.getElementById('totalSpent');
+    
+    if (!totalPlayersEl || !playersSoldEl || !playersRemainingEl || !totalSpentEl) {
+        return;
+    }
+    
+    if (!players || !Array.isArray(players)) {
+        totalPlayersEl.textContent = '0';
+        playersSoldEl.textContent = '0';
+        playersRemainingEl.textContent = '0';
+        totalSpentEl.textContent = '₹0.0Cr';
+        return;
+    }
+    
+    totalPlayersEl.textContent = players.length;
+    playersSoldEl.textContent = players.filter(p => p.status === 'sold').length;
+    playersRemainingEl.textContent = players.filter(p => p.status === 'unsold').length;
     
     const totalSpent = teams.reduce((sum, team) => sum + team.spent, 0);
-    document.getElementById('totalSpent').textContent = `₹${totalSpent.toFixed(1)}Cr`;
+    totalSpentEl.textContent = `₹${totalSpent.toFixed(1)}Cr`;
 }
 
 function updatePurse() {
@@ -1442,3 +1487,30 @@ window.refreshData = function() {
     renderHistory();
     renderParticipants();
 }
+
+// Add CSS animations for notifications
+const style = document.createElement('style');
+style.textContent = `
+    @keyframes slideInRight {
+        from {
+            transform: translateX(400px);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOutRight {
+        from {
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to {
+            transform: translateX(400px);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(style);
