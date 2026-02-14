@@ -406,7 +406,10 @@ window.joinRoom = async function() {
         }
         
         // Check if team is already taken
-        participants = roomData.participants || {};
+        participants = (roomData.participants && typeof roomData.participants === 'object')
+            ? roomData.participants
+            : {};
+            
         const teamTaken = Object.values(participants).some(p => p.team === teamName && p.online);
         
         if (teamTaken) {
