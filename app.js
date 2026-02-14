@@ -461,8 +461,18 @@ function setupFirebaseListeners() {
         currentSet = data.currentSet || [];
         currentSetNumber = data.currentSetNumber || 1;
         players = currentSet;
-        renderPlayers();
-        updateStats();
+        
+        // Only render if we have players
+        if (players && players.length > 0) {
+            renderPlayers();
+            updateStats();
+        } else {
+            console.warn('⚠️ No players in current set');
+            const container = document.getElementById('playersList');
+            if (container) {
+                container.innerHTML = '<p style="text-align: center; color: #888; padding: 20px;">No players loaded yet. Waiting for host to start...</p>';
+            }
+        }
         
         auctionHistory = data.history || [];
         renderHistory();
@@ -1008,14 +1018,27 @@ function showTeamDetails(team) {
 
 function renderPlayers() {
     const container = document.getElementById('playersList');
+    if (!container) return;
+    
     container.innerHTML = '';
     
-    const roleFilter = document.getElementById('roleFilter').value;
-    const statusFilter = document.getElementById('statusFilter').value;
+    // Safety check
+    if (!players || !Array.isArray(players) || players.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">No players available</p>';
+        return;
+    }
+    
+    const roleFilter = document.getElementById('roleFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    
+    if (!roleFilter || !statusFilter) {
+        console.warn('Filter elements not found');
+        return;
+    }
     
     let filteredPlayers = players.filter(player => {
-        const roleMatch = roleFilter === 'all' || player.role === roleFilter;
-        const statusMatch = statusFilter === 'all' || player.status === statusFilter;
+        const roleMatch = roleFilter.value === 'all' || player.role === roleFilter.value;
+        const statusMatch = statusFilter.value === 'all' || player.status === statusFilter.value;
         return roleMatch && statusMatch;
     });
     
@@ -1264,12 +1287,29 @@ function renderHistory() {
 }
 
 function updateStats() {
-    document.getElementById('totalPlayers').textContent = players.length;
-    document.getElementById('playersSold').textContent = players.filter(p => p.status === 'sold').length;
-    document.getElementById('playersRemaining').textContent = players.filter(p => p.status === 'unsold').length;
+    const totalPlayersEl = document.getElementById('totalPlayers');
+    const playersSoldEl = document.getElementById('playersSold');
+    const playersRemainingEl = document.getElementById('playersRemaining');
+    const totalSpentEl = document.getElementById('totalSpent');
+    
+    if (!totalPlayersEl || !playersSoldEl || !playersRemainingEl || !totalSpentEl) {
+        return;
+    }
+    
+    if (!players || !Array.isArray(players)) {
+        totalPlayersEl.textContent = '0';
+        playersSoldEl.textContent = '0';
+        playersRemainingEl.textContent = '0';
+        totalSpentEl.textContent = '₹0.0Cr';
+        return;
+    }
+    
+    totalPlayersEl.textContent = players.length;
+    playersSoldEl.textContent = players.filter(p => p.status === 'sold').length;
+    playersRemainingEl.textContent = players.filter(p => p.status === 'unsold').length;
     
     const totalSpent = teams.reduce((sum, team) => sum + team.spent, 0);
-    document.getElementById('totalSpent').textContent = `₹${totalSpent.toFixed(1)}Cr`;
+    totalSpentEl.textContent = `₹${totalSpent.toFixed(1)}Cr`;
 }
 
 function updatePurse() {
