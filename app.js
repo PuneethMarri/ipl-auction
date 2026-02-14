@@ -403,7 +403,11 @@ window.joinRoom = async function() {
         }
         
         team.owner = username;
+        await update(ref(database, `rooms/${roomId}`), {
+            teams: teams
+        });
         currentUser = { team: teamName, username: username, isHost: false };
+
         
         participants = roomData.participants || {};
         
