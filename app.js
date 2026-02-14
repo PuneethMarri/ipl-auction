@@ -55,6 +55,18 @@ window.onload = function() {
     loadPlayersFromCSV().then(() => {
         console.log('✅ App initialized');
         
+        // Populate team select dropdown
+        const select = document.getElementById('teamSelect');
+        if (select) {
+            teams.forEach(team => {
+                const option = document.createElement('option');
+                option.value = team.name;
+                option.textContent = team.name;
+                select.appendChild(option);
+            });
+            console.log('✅ Team dropdown populated');
+        }
+        
         // Check if URL has room parameters
         const urlParams = new URLSearchParams(window.location.search);
         const roomId = urlParams.get('room');
@@ -1430,15 +1442,3 @@ window.refreshData = function() {
     renderHistory();
     renderParticipants();
 }
-
-setTimeout(() => {
-    const select = document.getElementById('teamSelect');
-    if (select) {
-        teams.forEach(team => {
-            const option = document.createElement('option');
-            option.value = team.name;
-            option.textContent = team.name;
-            select.appendChild(option);
-        });
-    }
-}, 500);
