@@ -948,6 +948,10 @@ function renderTeams() {
     container.innerHTML = '';
     
     teams.forEach(team => {
+        const purse = Number(team.purse || 0);
+        const spent = Number(team.spent || 0);
+        const playersCount = (team.players || []).length;
+
         const isActive = currentUser && team.name === currentUser.team;
         const card = document.createElement('div');
         card.className = `team-card ${isActive ? 'active' : ''}`;
@@ -956,14 +960,27 @@ function renderTeams() {
         
         card.innerHTML = `
             <h3>${team.name}</h3>
-            <div class="team-stat"><span>Owner:</span> <strong>${team.owner || 'Not Assigned'}</strong></div>
-            <div class="team-stat"><span>Purse:</span> <strong style="color: ${team.purse < 20 ? '#ff4444' : '#4CAF50'};">₹${team.purse.toFixed(1)}Cr</strong></div>
-            <div class="team-stat"><span>Spent:</span> <strong>₹${team.spent.toFixed(1)}Cr</strong></div>
-            <div class="team-stat"><span>Players:</span> <strong>${team.players.length}</strong></div>
+            <div class="team-stat">
+                <span>Owner:</span> <strong>${team.owner || 'Not Assigned'}</strong>
+            </div>
+            <div class="team-stat">
+                <span>Purse:</span>
+                <strong style="color: ${purse < 20 ? '#ff4444' : '#4CAF50'};">
+                    ₹${purse.toFixed(1)}Cr
+                </strong>
+            </div>
+            <div class="team-stat">
+                <span>Spent:</span> <strong>₹${spent.toFixed(1)}Cr</strong>
+            </div>
+            <div class="team-stat">
+                <span>Players:</span> <strong>${playersCount}</strong>
+            </div>
         `;
+        
         container.appendChild(card);
     });
 }
+
 
 function showTeamDetails(team) {
     const modal = document.createElement('div');
