@@ -286,7 +286,9 @@ window.createRoom = async function() {
         }
         
         if (allPlayers.length === 0) {
-            alert('❌ No players loaded! Please check:\n1. Google Sheet is shared publicly\n2. Internet connection is working\n3. Refresh the page and try again');
+            alert('❌ No players loaded!\n\nPlayers.csv file is not loading.\n\nPossible fixes:\n1. Make sure players.csv is uploaded to GitHub\n2. Clear your browser cache (Ctrl+Shift+R)\n3. Check console (F12) for errors');
+            console.error('❌ CRITICAL: allPlayers is empty!');
+            console.error('Check if players.csv exists at:', window.location.origin + window.location.pathname.replace('index.html', '') + 'players.csv');
             return;
         }
         
