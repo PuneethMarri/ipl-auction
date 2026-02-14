@@ -120,28 +120,24 @@ function populateTeamSelect() {
 
 async function loadPlayersFromCSV() {
     try {
-        // Google Sheets ID from the URL
-        const sheetId = '1i4NQmcynf76DoKbqestur9T3Bu4AI6Ka1AAh66winh8';
-        const sheetUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
+        console.log('📥 Loading players from CSV file...');
         
-        console.log('📥 Loading players from Google Sheets...');
-        
-        const response = await fetch(sheetUrl);
+        const response = await fetch('players.csv');
         
         if (!response.ok) {
-            throw new Error('Failed to fetch Google Sheet. Make sure it is shared publicly (Anyone with link can view).');
+            throw new Error('Failed to load players.csv file');
         }
         
         const csvText = await response.text();
         
         if (!csvText || csvText.trim().length === 0) {
-            throw new Error('Google Sheet is empty');
+            throw new Error('CSV file is empty');
         }
         
         const lines = csvText.trim().split('\n');
         
         if (lines.length < 2) {
-            throw new Error('Google Sheet has no player data');
+            throw new Error('CSV has no player data');
         }
         
         allPlayers = [];
@@ -174,14 +170,14 @@ async function loadPlayersFromCSV() {
         }
         
         if (allPlayers.length === 0) {
-            throw new Error('No valid players found in Google Sheet');
+            throw new Error('No valid players found in CSV');
         }
         
-        console.log(`✅ Loaded ${allPlayers.length} players from Google Sheets`);
+        console.log(`✅ Loaded ${allPlayers.length} players from CSV file`);
         
     } catch (error) {
-        console.error('❌ Error loading Google Sheet:', error);
-        alert(`Error loading players from Google Sheets:\n\n${error.message}\n\nPlease check:\n1. Sheet is shared publicly (Anyone with link can view)\n2. Internet connection is working\n3. Sheet has correct format`);
+        console.error('❌ Error loading CSV:', error);
+        alert(`Error loading players from CSV file:\n\n${error.message}\n\nMake sure players.csv is in the same folder as index.html!`);
         
         // Initialize with empty array to prevent crashes
         allPlayers = [];
@@ -388,11 +384,17 @@ window.joinRoom = async function() {
         currentRoomPassword = roomPassword;
         isHost = false;
         
-        teams = roomData.teams;
+        // Get teams from room data
+        teams = roomData.teams || teams;
         const team = teams.find(t => t.name === teamName);
         
+        if (!team) {
+            alert(`❌ Team ${teamName} not found!`);
+            return;
+        }
+        
         if (team.owner && team.owner !== username) {
-            alert(`❌ ${teamName} is already taken by ${team.owner}!`);
+            alert(`❌ ${teamName} is already taken by ${team.owner}!\n\nPlease choose a different team.`);
             return;
         }
         
@@ -400,11 +402,20 @@ window.joinRoom = async function() {
         currentUser = { team: teamName, username: username, isHost: false };
         
         participants = roomData.participants || {};
+        
+        // Check if username already exists
+        if (participants[username] && participants[username].team !== teamName) {
+            alert(`❌ Username "${username}" is already taken!\n\nPlease use a different name.`);
+            return;
+        }
+        
         participants[username] = {
             team: teamName,
             ready: false,
             isHost: false
         };
+        
+        console.log('Updating room with new participant:', username);
         
         await update(ref(database, `rooms/${roomId}`), {
             teams: teams,
@@ -419,7 +430,7 @@ window.joinRoom = async function() {
         
     } catch (error) {
         console.error('Error joining room:', error);
-        alert('Error joining room. Please try again.');
+        alert(`Error joining room: ${error.message}\n\nPlease try again or check your internet connection.`);
     }
 }
 
