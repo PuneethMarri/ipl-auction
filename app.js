@@ -53,25 +53,7 @@ let roomDataListener = null;
 
 window.onload = function() {
     populateTeamSelect();
-    loadPlayersFromCSV().then(() => {
-        console.log('✅ App initialized');
-
-        const urlParams = new URLSearchParams(window.location.search);
-        const roomId = urlParams.get('room');
-        const password = urlParams.get('pass');
-
-        if (roomId && password) {
-            setTimeout(() => {
-                const roomIdInput = document.getElementById('roomId');
-                const passwordInput = document.getElementById('roomPassword');
-
-                if (roomIdInput) roomIdInput.value = roomId;
-                if (passwordInput) passwordInput.value = password;
-
-                console.log('🔗 Auto-filled room credentials from URL');
-            }, 100);
-        }
-    });
+    loadPlayersFromCSV();
 };
 
 function populateTeamSelect() {
@@ -115,8 +97,6 @@ async function loadPlayersFromCSV() {
                 status: 'unsold'
             });
         }
-
-        console.log(`✅ Loaded ${allPlayers.length} players`);
     } catch (error) {
         console.error(error);
     }
@@ -136,20 +116,21 @@ window.createRoom = async function() {
 
     participantId = `${username}_${Date.now()}`;
 
-    participants = {};
-    participants[participantId] = {
+    await set(roomRef, {
+        password: roomPassword,
+        teams,
+        history: [],
+        auctionStarted: false
+    });
+
+    // ✅ Atomic participant write
+    await update(ref(database, `rooms/${roomId}/participants/${participantId}`), {
         username,
         team: teamName,
         ready: false,
         isHost: true,
-        online: true
-    };
-
-    await set(roomRef, {
-        password: roomPassword,
-        teams,
-        participants,
-        history: []
+        online: true,
+        joinedAt: Date.now()
     });
 
     setupPresenceSystem();
@@ -166,26 +147,30 @@ window.joinRoom = async function() {
     const roomRef = ref(database, `rooms/${roomId}`);
     const snapshot = await get(roomRef);
 
+    if (!snapshot.exists()) {
+        alert("Room not found");
+        return;
+    }
+
     const data = snapshot.val();
 
     if (data.password !== roomPassword) {
-        alert('Wrong password');
+        alert("Wrong password");
         return;
     }
 
     currentRoomId = roomId;
     participantId = `${username}_${Date.now()}`;
 
-    participants = data.participants || {};
-    participants[participantId] = {
+    // ✅ Atomic participant write
+    await update(ref(database, `rooms/${roomId}/participants/${participantId}`), {
         username,
         team: teamName,
         ready: false,
         isHost: false,
-        online: true
-    };
-
-    await update(roomRef, { participants });
+        online: true,
+        joinedAt: Date.now()
+    });
 
     setupPresenceSystem();
     showApp();
@@ -195,7 +180,11 @@ window.joinRoom = async function() {
 function setupPresenceSystem() {
     const participantRef = ref(database, `rooms/${currentRoomId}/participants/${participantId}`);
 
-    onDisconnect(participantRef).update({ online: false });
+    onDisconnect(participantRef).update({
+        online: false,
+        leftAt: Date.now()
+    });
+
     update(participantRef, { online: true });
 }
 
@@ -205,9 +194,12 @@ function setupFirebaseListeners() {
     onValue(roomRef, (snapshot) => {
         const data = snapshot.val();
 
-        // ✅ CRITICAL FIX APPLIED HERE
         const previousParticipants = { ...participants };
-        participants = data.participants || {};
+
+        // ✅ Safe guard
+        participants = (data.participants && typeof data.participants === 'object')
+            ? data.participants
+            : {};
 
         checkParticipantChanges(previousParticipants, participants);
         renderParticipants();
@@ -215,9 +207,9 @@ function setupFirebaseListeners() {
 }
 
 function checkParticipantChanges(previous, current) {
-    Object.keys(current).forEach(pid => {
-        if (!previous[pid]) {
-            console.log(current[pid].username + " joined");
+    Object.keys(previous).forEach(pid => {
+        if (previous[pid]?.online && current[pid] && current[pid].online === false) {
+            console.log(previous[pid].username + " left");
         }
     });
 }
