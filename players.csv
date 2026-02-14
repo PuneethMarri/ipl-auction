@@ -1,0 +1,108 @@
+id,name,role,country,basePrice,style,photoUrl,status,soldTo,soldPrice
+1,Virat Kohli,Batsman,India,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/2.png,unsold,,0
+2,Rohit Sharma,Batsman,India,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/6.png,unsold,,0
+3,MS Dhoni,Wicket-keeper,India,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/57.png,unsold,,0
+4,Jasprit Bumrah,Bowler,India,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/9.png,unsold,,0
+5,Ravindra Jadeja,All-rounder,India,2.0,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/46.png,unsold,,0
+6,KL Rahul,Wicket-keeper,India,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/19.png,unsold,,0
+7,Hardik Pandya,All-rounder,India,2.0,Right-hand/fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/54.png,unsold,,0
+8,Rishabh Pant,Wicket-keeper,India,2.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/18.png,unsold,,0
+9,Shubman Gill,Batsman,India,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/62.png,unsold,,0
+10,Mohammed Siraj,Bowler,India,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/63.png,unsold,,0
+11,David Warner,Batsman,Australia,2.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2024/214.png,unsold,,0
+12,Glenn Maxwell,All-rounder,Australia,2.0,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/28.png,unsold,,0
+13,Pat Cummins,Bowler,Australia,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/33.png,unsold,,0
+14,Mitchell Starc,Bowler,Australia,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/31.png,unsold,,0
+15,Ben Stokes,All-rounder,England,2.0,Left-hand/fast,https://documents.iplt20.com/ipl/IPLHeadshot2023/177.png,unsold,,0
+16,Jos Buttler,Wicket-keeper,England,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/182.png,unsold,,0
+18,Kagiso Rabada,Bowler,South Africa,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/116.png,unsold,,0
+19,Quinton de Kock,Wicket-keeper,South Africa,2.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/170.png,unsold,,0
+20,Suryakumar Yadav,Batsman,India,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/174.png,unsold,,0
+21,Ishan Kishan,Wicket-keeper,India,1.5,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/164.png,unsold,,0
+22,Yuzvendra Chahal,Bowler,India,1.5,Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/10.png,unsold,,0
+23,Axar Patel,All-rounder,India,1.0,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/110.png,unsold,,0
+24,Shreyas Iyer,Batsman,India,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/12.png,unsold,,0
+25,Trent Boult,Bowler,New Zealand,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/66.png,unsold,,0
+26,Kane Williamson,Batsman,New Zealand,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2024/65.png,unsold,,0
+27,Mohammed Shami,Bowler,India,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/47.png,unsold,,0
+28,Ravichandran Ashwin,All-rounder,India,1.5,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/45.png,unsold,,0
+30,Faf du Plessis,Batsman,South Africa,2.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/94.png,unsold,,0
+31,Ruturaj Gaikwad,Batsman,India,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/102.png,unsold,,0
+32,Shikhar Dhawan,Batsman,India,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2024/11.png,unsold,,0
+33,Devdutt Padikkal,Batsman,India,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/200.png,unsold,,0
+34,Yashasvi Jaiswal,Batsman,India,1.5,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/533.png,unsold,,0
+35,Prithvi Shaw,Batsman,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2024/51.png,unsold,,0
+36,Steve Smith,Batsman,Australia,1.5,Right-hand,https://documents.iplt20.com/playerheadshot/ipl/284/271.png,unsold,,0
+37,Joe Root,Batsman,England,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2023/312.png,unsold,,0
+38,Rassie van der Dussen,Batsman,South Africa,1.0,Right-hand,https://img.ipl.com/upload/20260113/c44f7dbcdf9dd835c8e6fb9d618e0e2e.jpg,unsold,,0
+39,Mayank Agarwal,Batsman,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/55.png,unsold,,0
+40,Ajinkya Rahane,Batsman,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/44.png,unsold,,0
+41,Manish Pandey,Batsman,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/16.png,unsold,,0
+42,Tilak Varma,Batsman,India,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/993.png,unsold,,0
+43,Rinku Singh,Batsman,India,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/152.png,unsold,,0
+44,Abhishek Sharma,Batsman,India,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/212.png,unsold,,0
+45,Rajat Patidar,Batsman,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/597.png,unsold,,0
+46,Sarfaraz Khan,Batsman,India,0.75,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2023/139.png,unsold,,0
+47,Travis Head,Batsman,Australia,1.5,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/37.png,unsold,,0
+48,Dawid Malan,Batsman,England,1.0,Left-hand,https://documents.iplt20.com/playerheadshot/ipl/284/3318.png,unsold,,0
+49,Eoin Morgan,Batsman,England,1.0,Left-hand,https://documents.iplt20.com/playerheadshot/ipl/284/197.png,unsold,,0
+50,Aiden Markram,Batsman,South Africa,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/287.png,unsold,,0
+51,Vaibhav suryavanshi,Batsman,India,0.75,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/3498.png,unsold,,0
+52,Ayush Mhatre,Batsman,India,0.75,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/3497.png,unsold,,0
+53,Dewald Brevis,Batsman,South Africa,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/797.png,unsold,,0
+54,David Miller,Batsman,South Africa,1.5,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/128.png,unsold,,0
+55,Glenn Phillips,Batsman,New Zealand,1.5,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/635.png,unsold,,0
+56,Angkrish Raghuvanshi,Batsman,India,0.75,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/787.png,unsold,,0
+57,Priyansh Arya,Batsman,India,0.75,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/3571.png,unsold,,0
+58,Heinrich Klaasen,Wicket-keeper,South Africa,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/202.png,unsold,,0
+59,Jitesh Sharma,Wicket-keeper,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/1000.png,unsold,,0
+60,Phil Salt,Wicket-keeper,England,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/1220.png,unsold,,0
+61,Dhruv Jurel,Wicket-keeper,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/1004.png,unsold,,0
+62,Prabhsimran Singh,Wicket-keeper,India,1.0,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/137.png,unsold,,0
+63,Ryan Rickelton,Wicket-keeper,South Africa,1.0,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/743.png,unsold,,0
+64,Abishek Porel,Wicket-keeper,India,0.8,Left-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/1580.png,unsold,,0
+65,Sanju Samson,Wicket-keeper,India,1.5,Right-hand,https://documents.iplt20.com/ipl/IPLHeadshot2025/190.png,unsold,,0
+66,Shivam Dube,All-rounder,India,0.75,Left-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/211.png,unsold,,0
+67,Ashutosh Sharma,All-rounder,India,0.75,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/3109.png,unsold,,0
+68,Sai Sudharsan,All-rounder,India,1.5,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/976.png,unsold,,0
+69,Washington Sundar,All-rounder,India,1.5,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/20.png,unsold,,0
+70,Rahul Tewatia,All-rounder,India,1.5,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/120.png,unsold,,0
+71,Rashid Khan,All-rounder,Afghanistan,2.0,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/218.png,unsold,,0
+72,Harshit Rana,All-rounder,India,0.75,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/1013.png,unsold,,0
+73,Sunil Narine,All-rounder,West Indies,2.0,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/156.png,unsold,,0
+74,Mitchell Marsh,All-rounder,Australia,1.5,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/40.png,unsold,,0
+75,Abdul Samad,All-rounder,India,0.75,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/525.png,unsold,,0
+76,Mitchell Santner,All-rounder,New Zealand,1.5,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/75.png,unsold,,0
+77,Shardul Thakur,All-rounder,India,1.5,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/105.png,unsold,,0
+78,Will Jacks,All-rounder,England,1.5,Right-hand/Spin,https://static.toiimg.com/photo/120897186.cms,unsold,,0
+79,Marcus Stoinis,All-rounder,Australia,1.5,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/23.png,unsold,,0
+80,Marco Jansen,All-rounder,South Africa,1.5,Left-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/586.png,unsold,,0
+81,Sam Curran,All-rounder,England,1.5,Left-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/138.png,unsold,,0
+82,Riyan Parag,All-rounder,India,1.0,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/189.png,unsold,,0
+83,Romario Shepherd,All-rounder,West Indies,1.0,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/371.png,unsold,,0
+84,Venkatesh Iyer,All-rounder,India,1.5,Left-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/584.png,unsold,,0
+85,Krunal Pandya,All-rounder,India,1.5,Left-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/17.png,unsold,,0
+86,Tim David,All-rounder,Australia,1.0,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/636.png,unsold,,0
+87,Nitish Kumar Reddy,All-rounder,India,0.75,Right-hand/Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/1944.png,unsold,,0
+88,Liam Livingstone,All-rounder,England,2.0,Right-hand/Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/183.png,unsold,,0
+89,Harshal Patel,Bowler,India,1.0,Medium,https://documents.iplt20.com/ipl/IPLHeadshot2025/114.png,unsold,,0
+90,Jacob Duffy,Bowler,New Zealand,1.0,Fast,https://images.icc-cricket.com/image/upload/t_player-headshot-portrait-lg-webp/prd/assets/players/8322/57672.png,unsold,,0
+91,Bhuvneshwar Kumar,Bowler,India,1.5,Swing,https://documents.iplt20.com/ipl/IPLHeadshot2025/15.png,unsold,,0
+92,Josh Hazlewood,Bowler,Australia,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/36.png,unsold,,0
+93,Yash Dayal,Bowler,India,0.75,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/978.png,unsold,,0
+94,Jofra Archer,Bowler,England,2.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/181.png,unsold,,0
+95,Sandeep Sharma,Bowler,India,1.0,Swing,https://documents.iplt20.com/ipl/IPLHeadshot2024/220.png,unsold,,0
+96,Nandre Burger,Bowler,South Africa,1.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2024/2806.png,unsold,,0
+97,Arshdeep Singh,Bowler,India,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/125.png,unsold,,0
+98,Deepak Chahar,Bowler,India,1.5,Swing,https://documents.iplt20.com/ipl/IPLHeadshot2025/91.png,unsold,,0
+99,Avesh Khan,Bowler,India,1.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/109.png,unsold,,0
+100,Digvesh Singh,Bowler,India,0.75,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/3565.png,unsold,,0
+101,Akash Singh,Bowler,India,0.75,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/535.png,unsold,,0
+102,Varun Chakaravarthy,Bowler,India,1.5,Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/140.png,unsold,,0
+103,Ishant Sharma,Bowler,India,1.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/50.png,unsold,,0
+104,Prasidh Krishna,Bowler,India,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/150.png,unsold,,0
+105,T. Natarajan,Bowler,India,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/224.png,unsold,,0
+106,Kuldeep Yadav,Bowler,India,1.5,Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/14.png,unsold,,0
+107,Lungisani Ngidi,Bowler,South Africa,1.5,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2023/99.png,unsold,,0
+108,Noor Ahmad,Bowler,Afghanistan,1.0,Spin,https://documents.iplt20.com/ipl/IPLHeadshot2025/975.png,unsold,,0
+109,Khaleel Ahmed,Bowler,India,1.0,Fast,https://documents.iplt20.com/ipl/IPLHeadshot2025/8.png,unsold,,0
