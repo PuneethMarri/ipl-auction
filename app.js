@@ -314,26 +314,28 @@ window.createRoom = async function() {
         const playerSets = generatePlayerSets();
         console.log(`✅ Generated ${playerSets.length} player sets`);
         
-        participants[username] = {
-            team: teamName,
-            ready: false,
-            isHost: true
-        };
-        
         await set(roomRef, {
             password: roomPassword,
             host: username,
             createdAt: Date.now(),
-            expiresAt: Date.now() + (24 * 60 * 60 * 1000), // 24 hours from now
+            expiresAt: Date.now() + (24 * 60 * 60 * 1000),
             teams: teams,
             playerSets: playerSets,
             currentSetNumber: 1,
             currentSet: playerSets[0] || [],
             auctionStarted: false,
             currentPlayer: null,
-            history: [],
-            participants: participants
+            history: []
         });
+
+        await update(ref(database, `rooms/${roomId}/participants/${username}`), {
+            team: teamName,
+            ready: false,
+            isHost: true,
+            online: true,
+            joinedAt: Date.now()
+        });
+
         
         console.log('✅ Room created:', roomId);
         speak(`Welcome host ${username}! Waiting for players to join.`);
@@ -411,19 +413,16 @@ window.joinRoom = async function() {
             return;
         }
         
-        participants[username] = {
+        console.log('Updating room with new participant:', username);
+
+        await update(ref(database, `rooms/${roomId}/participants/${participantId}`), {
             team: teamName,
             ready: false,
-            isHost: false
-        };
-        
-        console.log('Updating room with new participant:', username);
-        
-        await update(ref(database, `rooms/${roomId}`), {
-            teams: teams,
-            participants: participants
+            isHost: false,
+            online: true,
+            joinedAt: Date.now()
         });
-        
+
         console.log('✅ Joined room:', roomId);
         speak(`Welcome ${username}! Click Ready when you're set.`);
         
@@ -460,9 +459,10 @@ function setupFirebaseListeners() {
         renderTeams();
         updatePurse();
         
-        currentSet = data.currentSet || [];
+        currentSet = Array.isArray(data.currentSet) ? data.currentSet : [];
         currentSetNumber = data.currentSetNumber || 1;
         players = currentSet;
+
         
         // Only render if we have players
         if (players && players.length > 0) {
@@ -479,7 +479,9 @@ function setupFirebaseListeners() {
         auctionHistory = data.history || [];
         renderHistory();
         
-        participants = data.participants || {};
+        participants = (data.participants && typeof data.participants === 'object')
+            ? data.participants
+            : {};
         renderParticipants();
         
         console.log('📊 Current participants:', participants);
@@ -509,7 +511,8 @@ function setupFirebaseListeners() {
         
         if (data.currentPlayer) {
             const savedPlayer = data.currentPlayer;
-            const player = players.find(p => p.id === savedPlayer.id);
+            const player = players.find(p => Number(p.id) === Number(savedPlayer.id));
+
             
             if (player && player.status === 'unsold') {
                 const bidChanged = (currentBid !== savedPlayer.currentBid) || 
