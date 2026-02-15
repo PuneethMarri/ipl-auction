@@ -521,7 +521,7 @@ function setupFirebaseListeners() {
             document.getElementById('noPlayerMessage').style.display = 'block';
         }
         
-        if (data.currentPlayer) {
+        if (data.currentPlayer && !auctionResolving) {
             const savedPlayer = data.currentPlayer;
             const player = players.find(p => Number(p.id) === Number(savedPlayer.id));
 
@@ -1229,7 +1229,10 @@ window.startNextPlayer = async function() {
         return;
     }
     
-    const availablePlayers = players.filter(p => p.status === 'unsold');
+    const availablePlayers = players.filter(
+        p => (p.status || 'unsold') === 'unsold'
+    );
+
     if (availablePlayers.length > 0) {
         await selectPlayer(availablePlayers[0]);
     } else {
@@ -1332,7 +1335,11 @@ window.soldPlayer = async function() {
             soldTo: highestBidder,
             soldPrice: currentBid
         };
-        
+        await update(
+            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
+            players[playerIndex]
+        );
+
         await addToHistory(
             `${currentPlayerOnAuction.name} SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
             'sold'
