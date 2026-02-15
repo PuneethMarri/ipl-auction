@@ -1340,9 +1340,14 @@ window.soldPlayer = async function() {
             soldPrice: currentBid
         };
         await update(
-            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
-            players[playerIndex]
+            ref(database, `rooms/${currentRoomId}/currentSet/${currentPlayerOnAuction.id}`),
+            {
+                status: 'sold',
+                soldTo: highestBidder,
+                soldPrice: currentBid
+            }
         );
+
 
         await addToHistory(
             `${currentPlayerOnAuction.name} SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
