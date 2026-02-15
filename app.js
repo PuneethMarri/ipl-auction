@@ -473,7 +473,8 @@ function setupFirebaseListeners() {
         
         currentSet = Array.isArray(data.currentSet) ? data.currentSet : [];
         currentSetNumber = data.currentSetNumber || 1;
-        players = currentSet;
+        players = [...currentSet];
+
 
         
         // Only render if we have players
@@ -984,12 +985,15 @@ async function autoSellPlayer() {
         return;
     }
 
-    players[playerIndex] = {
-        ...players[playerIndex],
-        status: 'sold',
-        soldTo: highestBidder,
-        soldPrice: currentBid
-    };
+    await update(
+        ref(database, `rooms/${currentRoomId}/currentSet/${currentPlayerOnAuction.id}`),
+        {
+            status: 'sold',
+            soldTo: highestBidder,
+            soldPrice: currentBid
+        }
+    );
+
 
     await addToHistory(
         `⏰ ${currentPlayerOnAuction.name} AUTO-SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
@@ -1447,7 +1451,7 @@ function updateStats() {
     
     totalPlayersEl.textContent = players.length;
     playersSoldEl.textContent = players.filter(p => p.status === 'sold').length;
-    playersRemainingEl.textContent = players.filter(p => p.status === 'unsold').length;
+    playersRemainingEl.textContent = players.filter(p => (p.status || 'unsold') === 'unsold').length;
     
     const totalSpent = teams.reduce((sum, team) => sum + team.spent, 0);
     totalSpentEl.textContent = `₹${totalSpent.toFixed(1)}Cr`;
