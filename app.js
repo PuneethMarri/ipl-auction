@@ -1007,9 +1007,12 @@ async function autoSellPlayer() {
     currentPlayerOnAuction = null;   // ⭐ prevents listener race
 
     await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-
     resetAuction();
-    auctionResolving = false;
+    setTimeout(() => {
+        startNextPlayer();
+    }, 3000);
+
+auctionResolving = false;
 
 }
 
@@ -1336,7 +1339,7 @@ window.soldPlayer = async function() {
         players[playerIndex].status = 'sold';
         players[playerIndex].soldTo = highestBidder;
         players[playerIndex].soldPrice = currentBid;
-        
+
         await update(
             ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
             {
@@ -1359,8 +1362,12 @@ window.soldPlayer = async function() {
         currentPlayerOnAuction = null;
         
         await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-
+        
         resetAuction();
+
+        setTimeout(() => {
+            startNextPlayer();
+        }, 3000);
 
     } finally {
 
@@ -1401,7 +1408,11 @@ window.unsoldPlayer = async function() {
     await addToHistory(`${currentPlayerOnAuction.name} went UNSOLD`, 'unsold');
     speak(`${currentPlayerOnAuction.name} remains unsold.`);
     await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+    
     resetAuction();
+    setTimeout(() => {
+        startNextPlayer();
+    }, 3000);
 }
 
 function resetAuction() {
