@@ -2,7 +2,7 @@
 // Random player sets, Ready system, 15-second auto-sell
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBJBwF80s_3to-kNB7-TU9BZtkNQIOhEis",
@@ -337,7 +337,9 @@ window.createRoom = async function() {
             joinedAt: Date.now()
         });
 
-        
+        // ⭐ Mark offline on disconnect
+        onDisconnect(ref(database, `rooms/${roomId}/participants/${username}/online`)).set(false);
+
         console.log('✅ Room created:', roomId);
         speak(`Welcome host ${username}! Waiting for players to join.`);
         
@@ -372,9 +374,7 @@ window.joinRoom = async function() {
         
         const roomData = snapshot.val();
         
-        // Check if room has expired (24 hours old)
         if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
-            // Delete the expired room
             await remove(roomRef);
             alert('❌ This room has expired (rooms are deleted after 24 hours).\n\nPlease create a new room!');
             return;
@@ -387,8 +387,7 @@ window.joinRoom = async function() {
         
         currentRoomId = roomId;
         currentRoomPassword = roomPassword;
-        isHost = false;
-        
+
         // Get teams from room data
         teams = roomData.teams || teams;
         const team = teams.find(t => t.name === teamName);
@@ -402,41 +401,53 @@ window.joinRoom = async function() {
             alert(`❌ ${teamName} is already taken by ${team.owner}!\n\nPlease choose a different team.`);
             return;
         }
-        
-        const updatedTeams = teams.map(t => {
-            if (t.name === teamName) {
-                return { ...t, owner: username };
-            }
-            return t;
-        });
-        await update(ref(database, `rooms/${roomId}`), {
-            teams: updatedTeams
-        });
-        teams = updatedTeams;
 
-        currentUser = { team: teamName, username: username, isHost: false };
-
-        
         participants = roomData.participants || {};
-        
-        // Check if username already exists
+
         if (participants[username] && participants[username].team !== teamName) {
             alert(`❌ Username "${username}" is already taken!\n\nPlease use a different name.`);
             return;
         }
-        
-        console.log('Updating room with new participant:', username);
+
+        // ⭐ Check if this user is the original host rejoining
+        const isOriginalHost = roomData.host === username;
+        isHost = isOriginalHost;
+
+        // ⭐ If original host is rejoining, restore their host flag in all participants
+        if (isOriginalHost) {
+            // Demote anyone else who may have been promoted to host
+            const updates = {};
+            Object.keys(participants).forEach(name => {
+                if (name !== username && participants[name].isHost) {
+                    updates[`rooms/${roomId}/participants/${name}/isHost`] = false;
+                }
+            });
+            if (Object.keys(updates).length > 0) await update(ref(database), updates);
+            speak(`Welcome back ${username}! Host restored.`);
+        } else {
+            isHost = false;
+            speak(`Welcome ${username}! Click Ready when you're set.`);
+        }
+
+        const updatedTeams = teams.map(t => t.name === teamName ? { ...t, owner: username } : t);
+        await update(ref(database, `rooms/${roomId}`), { teams: updatedTeams });
+        teams = updatedTeams;
+
+        currentUser = { team: teamName, username: username, isHost: isHost };
 
         await update(ref(database, `rooms/${roomId}/participants/${username}`), {
             team: teamName,
-            ready: false,
-            isHost: false,
+            ready: participants[username]?.ready || false,
+            isHost: isHost,
             online: true,
-            joinedAt: Date.now()
+            joinedAt: participants[username]?.joinedAt || Date.now()
         });
 
-        console.log('✅ Joined room:', roomId);
-        speak(`Welcome ${username}! Click Ready when you're set.`);
+        // ⭐ Mark offline on disconnect
+        const presenceRef = ref(database, `rooms/${roomId}/participants/${username}/online`);
+        onDisconnect(presenceRef).set(false);
+
+        console.log('✅ Joined room:', roomId, isHost ? '(HOST)' : '');
         
         showApp();
         setupFirebaseListeners();
@@ -447,10 +458,57 @@ window.joinRoom = async function() {
     }
 }
 
+async function checkAndTransferHost(data) {
+    if (!currentRoomId || !participants) return;
+
+    const partList = Object.entries(participants).filter(([, p]) => p && typeof p === 'object');
+    if (partList.length === 0) return;
+
+    // Find who currently has isHost = true
+    const currentHostEntry = partList.find(([, p]) => p.isHost);
+    const currentHostName = currentHostEntry ? currentHostEntry[0] : null;
+    const currentHostData = currentHostEntry ? currentHostEntry[1] : null;
+
+    // If host is online, nothing to do
+    if (currentHostData && currentHostData.online) return;
+
+    // Host is offline (or no host) — only the first online non-host should trigger transfer (avoid all clients doing it)
+    const onlineParticipants = partList.filter(([, p]) => p.online);
+    if (onlineParticipants.length === 0) return;
+
+    // Only the "first" online participant (alphabetically) does the promotion to avoid race
+    const [firstOnlineName] = onlineParticipants.sort((a, b) => a[0].localeCompare(b[0]))[0];
+    if (currentUser.username !== firstOnlineName) return;
+
+    // ⭐ Promote the first online participant to host
+    const newHostName = firstOnlineName;
+    console.log(`🔄 Host ${currentHostName} went offline. Promoting ${newHostName} to host.`);
+
+    const updates = {};
+    // Demote old host
+    if (currentHostName) updates[`rooms/${currentRoomId}/participants/${currentHostName}/isHost`] = false;
+    // Promote new host
+    updates[`rooms/${currentRoomId}/participants/${newHostName}/isHost`] = true;
+    // Update room's host field
+    updates[`rooms/${currentRoomId}/host`] = newHostName;
+
+    await update(ref(database), updates);
+
+    // If WE are the new host, update local state and show host controls
+    if (newHostName === currentUser.username) {
+        isHost = true;
+        currentUser.isHost = true;
+        document.getElementById('userRole').textContent = '👑 HOST';
+        document.querySelectorAll('.host-only').forEach(el => el.style.display = '');
+        speak(`${currentHostName} disconnected. You are now the host!`);
+        console.log('👑 You are now the host!');
+    }
+}
+
 function setupFirebaseListeners() {
     const roomRef = ref(database, `rooms/${currentRoomId}`);
     
-    roomDataListener = onValue(roomRef, (snapshot) => {
+    roomDataListener = onValue(roomRef, async (snapshot) => {
         if (!snapshot.exists()) {
             alert('Room has been deleted!');
             logout();
@@ -520,6 +578,10 @@ function setupFirebaseListeners() {
         participants = (data.participants && typeof data.participants === 'object')
             ? data.participants
             : {};
+
+        // ⭐ HOST TRANSFER: check if current host is offline and we need to promote someone
+        await checkAndTransferHost(data);
+
         renderParticipants();
         
         console.log('📊 Current participants:', participants);
