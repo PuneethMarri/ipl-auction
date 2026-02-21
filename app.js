@@ -1233,24 +1233,6 @@ async function selectPlayer(player) {
     
     speak(`Now on auction: ${player.name}, ${player.role} from ${player.country}.`);
 }
-    
-    currentPlayerOnAuction = player;
-    currentBid = player.basePrice;
-    highestBidder = null;
-    lastBidTime = Date.now();
-    
-    await set(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
-        id: player.id,
-        currentBid: currentBid,
-        highestBidder: highestBidder,
-        lastBidTime: lastBidTime
-    });
-    
-    displayCurrentPlayer();
-    startAuctionTimer();
-    
-    speak(`Now on auction: ${player.name}, ${player.role} from ${player.country}.`);
-}
 
 function displayCurrentPlayer() {
     document.getElementById('playerCard').style.display = 'block';
