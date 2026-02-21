@@ -55,8 +55,24 @@ let auctionResolving = false;
 populateTeamSelect();
 
 window.onload = function() {
-    loadPlayersFromCSV().then(() => {
+    loadPlayersFromCSV().then(async () => {
         console.log('✅ App initialized');
+
+        // ⭐ Check for saved session - auto-rejoin on refresh
+        const saved = localStorage.getItem('iplAuctionSession');
+        if (saved) {
+            try {
+                const session = JSON.parse(saved);
+                // Validate session has all required fields
+                if (session.roomId && session.password && session.team && session.username) {
+                    console.log('🔄 Restoring session for', session.username);
+                    await autoRejoinSession(session);
+                    return; // skip URL param handling below
+                }
+            } catch(e) {
+                localStorage.removeItem('iplAuctionSession');
+            }
+        }
         
         // Check if URL has room parameters
         const urlParams = new URLSearchParams(window.location.search);
@@ -64,7 +80,6 @@ window.onload = function() {
         const password = urlParams.get('pass');
         
         if (roomId && password) {
-            // Auto-fill the form
             setTimeout(() => {
                 const roomIdInput = document.getElementById('roomId');
                 const passwordInput = document.getElementById('roomPassword');
@@ -72,7 +87,6 @@ window.onload = function() {
                 if (roomIdInput) roomIdInput.value = roomId;
                 if (passwordInput) passwordInput.value = password;
                 
-                // Show helpful message
                 const loginBox = document.querySelector('.login-box');
                 if (loginBox) {
                     const notice = document.createElement('div');
@@ -83,12 +97,76 @@ window.onload = function() {
                     `;
                     loginBox.insertBefore(notice, loginBox.children[2]);
                 }
-                
-                console.log('🔗 Auto-filled room credentials from URL');
             }, 100);
         }
     });
 };
+
+async function autoRejoinSession(session) {
+    try {
+        const roomRef = ref(database, `rooms/${session.roomId}`);
+        const snapshot = await get(roomRef);
+
+        if (!snapshot.exists()) {
+            console.log('Room no longer exists, clearing session');
+            localStorage.removeItem('iplAuctionSession');
+            return;
+        }
+
+        const roomData = snapshot.val();
+
+        if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
+            localStorage.removeItem('iplAuctionSession');
+            return;
+        }
+
+        if (roomData.password !== session.password) {
+            localStorage.removeItem('iplAuctionSession');
+            return;
+        }
+
+        // Restore state
+        currentRoomId = session.roomId;
+        currentRoomPassword = session.password;
+
+        teams = roomData.teams || teams;
+        const isOriginalHost = roomData.host === session.username;
+        isHost = isOriginalHost || (roomData.participants?.[session.username]?.isHost === true);
+
+        currentUser = { team: session.team, username: session.username, isHost };
+
+        // Re-mark online and restore isHost if needed
+        await update(ref(database, `rooms/${session.roomId}/participants/${session.username}`), {
+            online: true,
+            isHost: isHost
+        });
+
+        // If original host is back, demote any temp host
+        if (isOriginalHost) {
+            const parts = roomData.participants || {};
+            const updates = {};
+            Object.keys(parts).forEach(name => {
+                if (name !== session.username && parts[name].isHost) {
+                    updates[`rooms/${session.roomId}/participants/${name}/isHost`] = false;
+                }
+            });
+            if (Object.keys(updates).length > 0) await update(ref(database), updates);
+            await update(ref(database, `rooms/${session.roomId}`), { host: session.username });
+        }
+
+        onDisconnect(ref(database, `rooms/${session.roomId}/participants/${session.username}/online`)).set(false);
+
+        participants = roomData.participants || {};
+
+        console.log('✅ Session restored for', session.username, isHost ? '(HOST)' : '');
+        showApp();
+        setupFirebaseListeners();
+
+    } catch(e) {
+        console.error('Auto-rejoin failed:', e);
+        localStorage.removeItem('iplAuctionSession');
+    }
+}
 
 function populateTeamSelect() {
     const select = document.getElementById('teamSelect');
@@ -341,6 +419,10 @@ window.createRoom = async function() {
         onDisconnect(ref(database, `rooms/${roomId}/participants/${username}/online`)).set(false);
 
         console.log('✅ Room created:', roomId);
+        // ⭐ Save session for refresh recovery
+        localStorage.setItem('iplAuctionSession', JSON.stringify({
+            roomId, password: roomPassword, team: teamName, username
+        }));
         speak(`Welcome host ${username}! Waiting for players to join.`);
         
         showApp();
@@ -448,6 +530,10 @@ window.joinRoom = async function() {
         onDisconnect(presenceRef).set(false);
 
         console.log('✅ Joined room:', roomId, isHost ? '(HOST)' : '');
+        // ⭐ Save session for refresh recovery
+        localStorage.setItem('iplAuctionSession', JSON.stringify({
+            roomId, password: roomPassword, team: teamName, username
+        }));
         
         showApp();
         setupFirebaseListeners();
@@ -799,6 +885,9 @@ window.logout = function() {
         if (roomDataListener) roomDataListener();
         if (auctionTimer) clearInterval(auctionTimer);
         
+        // ⭐ Clear saved session so refresh goes to login
+        localStorage.removeItem('iplAuctionSession');
+
         currentUser = null;
         currentRoomId = null;
         isHost = false;
