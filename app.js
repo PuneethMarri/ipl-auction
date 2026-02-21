@@ -467,11 +467,28 @@ function setupFirebaseListeners() {
             return;
         }
         
-        teams = data.teams;
+        // Firebase may return teams as object with numeric keys - normalize to array
+        if (data.teams) {
+            teams = Array.isArray(data.teams) 
+                ? data.teams 
+                : Object.values(data.teams);
+        }
         renderTeams();
         updatePurse();
         
-        currentSet = Array.isArray(data.currentSet) ? data.currentSet : [];
+        // Firebase stores arrays as objects with numeric keys - always normalize
+        const rawSet = data.currentSet;
+        if (!rawSet) {
+            currentSet = [];
+        } else if (Array.isArray(rawSet)) {
+            currentSet = rawSet;
+        } else {
+            // Firebase converted array to object: {0: {...}, 1: {...}} → normalize back
+            currentSet = Object.keys(rawSet)
+                .sort((a, b) => Number(a) - Number(b))
+                .map(k => rawSet[k])
+                .filter(p => p != null);
+        }
         currentSetNumber = data.currentSetNumber || 1;
         players = [...currentSet];
 
@@ -526,8 +543,8 @@ function setupFirebaseListeners() {
             const savedPlayer = data.currentPlayer;
             const player = players.find(p => Number(p.id) === Number(savedPlayer.id));
 
-            
-            if (player && player.status === 'unsold') {
+            // Accept player whether status is 'unsold' or undefined (freshly added)
+            if (player && (player.status === 'unsold' || !player.status)) {
                 const bidChanged = (currentBid !== savedPlayer.currentBid) || 
                                  (highestBidder !== savedPlayer.highestBidder);
                 
@@ -542,7 +559,8 @@ function setupFirebaseListeners() {
                     startAuctionTimer();
                 }
             }
-        } else if (currentPlayerOnAuction) {
+        } else if (!data.currentPlayer && !auctionResolving && currentPlayerOnAuction) {
+            // Only reset if we are NOT mid-processing
             stopAuctionTimer();
             resetAuction();
         }
@@ -925,95 +943,93 @@ async function autoSellPlayer() {
     if (!currentPlayerOnAuction || !currentRoomId || auctionResolving) return;
     auctionResolving = true;
 
-
     console.log("⏰ Auto-sell triggered");
 
-    // ⭐ CASE 1 — No bids placed
-    if (!highestBidder || currentBid <= 0) {
+    try {
+        // ⭐ CASE 1 — No bids placed
+        if (!highestBidder || currentBid <= 0) {
+            // Mark player as unsold in local array
+            const playerIndex = players.findIndex(p => Number(p.id) === Number(currentPlayerOnAuction.id));
+            if (playerIndex !== -1) {
+                players[playerIndex].status = 'unsold';
+                players[playerIndex].soldTo = null;
+                players[playerIndex].soldPrice = 0;
+            }
 
-        await addToHistory(`⏰ ${currentPlayerOnAuction.name} went UNSOLD (No bids)`, 'unsold');
+            await addToHistory(`⏰ ${currentPlayerOnAuction.name} went UNSOLD (No bids)`, 'unsold');
+            speak(`${currentPlayerOnAuction.name} remains unsold.`);
 
-        speak(`${currentPlayerOnAuction.name} remains unsold.`);
+            await saveToFirebase();
+            await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
 
-        await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-
-        resetAuction();
-        return;
-    }
-
-    // ⭐ CASE 2 — Bids exist → Sell to highest bidder
-    const team = teams.find(t => t.name === highestBidder);
-
-    if (!team) {
-        console.error("❌ Invalid highestBidder:", highestBidder);
-        return;
-    }
-
-    // ⭐ CASE 3 — Insufficient purse protection
-    if (Number(team.purse) < Number(currentBid)) {
-
-        console.warn("⚠️ Auto-sell failed: insufficient purse");
-
-        await addToHistory(`❌ ${currentPlayerOnAuction.name} AUTO-FAILED (Insufficient purse)`, 'unsold');
-
-        speak(`${highestBidder} cannot afford the player.`);
-
-        await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-
-        resetAuction();
-        return;
-    }
-
-    // ⭐ Apply sale
-    team.purse = Number(team.purse) - Number(currentBid);
-    team.spent = Number(team.spent || 0) + Number(currentBid);
-
-    team.players = team.players || [];
-    team.players.push({
-        name: currentPlayerOnAuction.name,
-        role: currentPlayerOnAuction.role,
-        price: currentBid
-    });
-
-    // ⭐ Update player safely
-    const playerIndex = players.findIndex(
-        p => Number(p.id) === Number(currentPlayerOnAuction.id)
-    );
-
-    if (playerIndex === -1) {
-        console.error("❌ Player not found:", currentPlayerOnAuction.id);
-        return;
-    }
-
-    await update(
-        ref(database, `rooms/${currentRoomId}/currentSet/${currentPlayerOnAuction.id}`),
-        {
-            status: 'sold',
-            soldTo: highestBidder,
-            soldPrice: currentBid
+            resetAuction();
+            setTimeout(() => { if (isHost) startNextPlayer(); }, 3000);
+            return;
         }
-    );
 
+        // ⭐ CASE 2 — Bids exist → Sell to highest bidder
+        const team = teams.find(t => t.name === highestBidder);
 
-    await addToHistory(
-        `⏰ ${currentPlayerOnAuction.name} AUTO-SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
-        'sold'
-    );
+        if (!team) {
+            console.error("❌ Invalid highestBidder:", highestBidder);
+            await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+            resetAuction();
+            return;
+        }
 
-    speak(`Time up! ${currentPlayerOnAuction.name} sold to ${highestBidder}`);
+        // ⭐ CASE 3 — Insufficient purse protection
+        if (Number(team.purse) < Number(currentBid)) {
+            console.warn("⚠️ Auto-sell failed: insufficient purse");
+            await addToHistory(`❌ ${currentPlayerOnAuction.name} AUTO-FAILED (Insufficient purse for ${highestBidder})`, 'unsold');
+            speak(`${highestBidder} cannot afford the player.`);
 
-    await saveToFirebase();
+            await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+            resetAuction();
+            setTimeout(() => { if (isHost) startNextPlayer(); }, 3000);
+            return;
+        }
 
-    currentPlayerOnAuction = null;   // ⭐ prevents listener race
+        // ⭐ Apply sale - update team purse and squad
+        team.purse = Number(team.purse) - Number(currentBid);
+        team.spent = Number(team.spent || 0) + Number(currentBid);
+        team.players = team.players || [];
+        team.players.push({
+            name: currentPlayerOnAuction.name,
+            role: currentPlayerOnAuction.role,
+            price: currentBid,
+            photoUrl: currentPlayerOnAuction.photoUrl || ''
+        });
 
-    await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-    resetAuction();
-    setTimeout(() => {
-        startNextPlayer();
-    }, 3000);
+        // ⭐ Update player status in local array by id (not index)
+        const playerIndex = players.findIndex(p => Number(p.id) === Number(currentPlayerOnAuction.id));
+        if (playerIndex === -1) {
+            console.error("❌ Player not found:", currentPlayerOnAuction.id);
+            await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+            resetAuction();
+            return;
+        }
 
-auctionResolving = false;
+        players[playerIndex].status = 'sold';
+        players[playerIndex].soldTo = highestBidder;
+        players[playerIndex].soldPrice = currentBid;
 
+        await addToHistory(
+            `⏰ ${currentPlayerOnAuction.name} AUTO-SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
+            'sold'
+        );
+
+        speak(`Time up! ${currentPlayerOnAuction.name} sold to ${highestBidder}`);
+
+        // ⭐ Save full updated state to Firebase (teams + players)
+        await saveToFirebase();
+
+        await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+        resetAuction();
+        setTimeout(() => { if (isHost) startNextPlayer(); }, 3000);
+
+    } finally {
+        auctionResolving = false;
+    }
 }
 
 
@@ -1235,15 +1251,32 @@ window.startNextPlayer = async function() {
         alert('Only the host can start the next player!');
         return;
     }
-    
+
+    // ⭐ Fetch fresh data from Firebase to avoid stale local state
+    try {
+        const snapshot = await get(ref(database, `rooms/${currentRoomId}/currentSet`));
+        if (snapshot.exists()) {
+            const raw = snapshot.val();
+            // Normalize Firebase object/array to proper array
+            const freshPlayers = Array.isArray(raw)
+                ? raw
+                : Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(k => raw[k]).filter(p => p != null);
+            
+            // Update local players array
+            players = freshPlayers;
+        }
+    } catch (e) {
+        console.warn('Could not fetch fresh players, using local:', e);
+    }
+
     const availablePlayers = players.filter(
-        p => (p.status || 'unsold') === 'unsold'
+        p => p && (p.status === 'unsold' || !p.status)
     );
 
     if (availablePlayers.length > 0) {
         await selectPlayer(availablePlayers[0]);
     } else {
-        alert('All players in this set are done! 🎉');
+        alert('🎉 All players in this set have been auctioned!');
     }
 }
 
@@ -1286,7 +1319,6 @@ window.soldPlayer = async function() {
     auctionResolving = true;
 
     try {
-
         if (!isHost) {
             alert('Only the host can mark players as sold!');
             return;
@@ -1303,7 +1335,6 @@ window.soldPlayer = async function() {
         }
         
         const team = teams.find(t => t.name === highestBidder);
-
         if (!team) {
             console.error("❌ Invalid highestBidder:", highestBidder);
             return;
@@ -1316,9 +1347,9 @@ window.soldPlayer = async function() {
         
         stopAuctionTimer();
         
+        // ⭐ Update team purse and add player to squad
         team.purse = Number(team.purse) - Number(currentBid);
         team.spent = Number(team.spent || 0) + Number(currentBid);
-
         team.players = team.players || [];
         team.players.push({
             name: currentPlayerOnAuction.name,
@@ -1327,50 +1358,33 @@ window.soldPlayer = async function() {
             photoUrl: currentPlayerOnAuction.photoUrl || ''
         });
         
+        // ⭐ Update player status in local array by id
         const playerIndex = players.findIndex(
             p => Number(p.id) === Number(currentPlayerOnAuction.id)
         );
-
         if (playerIndex === -1) {
             console.error("❌ Player not found:", currentPlayerOnAuction.id);
             return;
         }
-
         players[playerIndex].status = 'sold';
         players[playerIndex].soldTo = highestBidder;
         players[playerIndex].soldPrice = currentBid;
-
-        await update(
-            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
-            {
-                status: 'sold',
-                soldTo: highestBidder,
-                soldPrice: currentBid
-            }
-        );
-
 
         await addToHistory(
             `${currentPlayerOnAuction.name} SOLD to ${highestBidder} for ₹${Number(currentBid).toFixed(1)}Cr`,
             'sold'
         );
-
         speak(`${currentPlayerOnAuction.name} sold to ${highestBidder}!`);
         
+        // ⭐ Save complete updated state (teams + all players) in one shot
         await saveToFirebase();
 
-        currentPlayerOnAuction = null;
-        
         await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-        
         resetAuction();
 
-        setTimeout(() => {
-            startNextPlayer();
-        }, 3000);
+        setTimeout(() => { startNextPlayer(); }, 3000);
 
     } finally {
-
         auctionResolving = false;
     }
 };
@@ -1386,33 +1400,35 @@ window.unsoldPlayer = async function() {
         alert('No player on auction!');
         return;
     }
-    
-    stopAuctionTimer();
-    
-    const playerIndex = players.findIndex(
-        p => Number(p.id) === Number(currentPlayerOnAuction.id)
-    );
-    if (playerIndex !== -1) {
-        players[playerIndex].status = 'unsold';
-        players[playerIndex].soldTo = null;
-        players[playerIndex].soldPrice = 0;
-        await update(
-            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
-            {
-                status: 'unsold',
-                soldTo: null,
-                soldPrice: 0
-            }
+
+    if (auctionResolving) return;
+    auctionResolving = true;
+
+    try {
+        stopAuctionTimer();
+        
+        // ⭐ Update player status in local array by id
+        const playerIndex = players.findIndex(
+            p => Number(p.id) === Number(currentPlayerOnAuction.id)
         );
+        if (playerIndex !== -1) {
+            players[playerIndex].status = 'unsold';
+            players[playerIndex].soldTo = null;
+            players[playerIndex].soldPrice = 0;
+        }
+
+        await addToHistory(`${currentPlayerOnAuction.name} went UNSOLD`, 'unsold');
+        speak(`${currentPlayerOnAuction.name} remains unsold.`);
+
+        // ⭐ Save full state (teams unchanged, player marked unsold)
+        await saveToFirebase();
+        await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
+        
+        resetAuction();
+        setTimeout(() => { startNextPlayer(); }, 3000);
+    } finally {
+        auctionResolving = false;
     }
-    await addToHistory(`${currentPlayerOnAuction.name} went UNSOLD`, 'unsold');
-    speak(`${currentPlayerOnAuction.name} remains unsold.`);
-    await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
-    
-    resetAuction();
-    setTimeout(() => {
-        startNextPlayer();
-    }, 3000);
 }
 
 function resetAuction() {
