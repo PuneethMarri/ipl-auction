@@ -946,12 +946,11 @@ async function autoSellPlayer() {
     console.log("⏰ Auto-sell triggered");
 
     try {
-        // ⭐ CASE 1 — No bids placed
+        // ⭐ CASE 1 — No bids placed → mark as passed so they don't loop
         if (!highestBidder || currentBid <= 0) {
-            // Mark player as unsold in local array
             const playerIndex = players.findIndex(p => Number(p.id) === Number(currentPlayerOnAuction.id));
             if (playerIndex !== -1) {
-                players[playerIndex].status = 'unsold';
+                players[playerIndex].status = 'passed';
                 players[playerIndex].soldTo = null;
                 players[playerIndex].soldPrice = 0;
             }
@@ -1156,17 +1155,22 @@ function renderPlayers() {
     
     let filteredPlayers = players.filter(player => {
         const roleMatch = roleFilter.value === 'all' || player.role === roleFilter.value;
-        const statusMatch = statusFilter.value === 'all' || player.status === statusFilter.value;
+        let statusMatch = false;
+        if (statusFilter.value === 'all') statusMatch = true;
+        else if (statusFilter.value === 'unsold') statusMatch = (!player.status || player.status === 'unsold' || player.status === 'passed');
+        else statusMatch = player.status === statusFilter.value;
         return roleMatch && statusMatch;
     });
     
     filteredPlayers.forEach(player => {
         const card = document.createElement('div');
-        card.className = `player-item ${player.status}`;
+        card.className = `player-item ${player.status || 'unsold'}`;
         
         let statusBadge = '';
         if (player.status === 'sold') {
-            statusBadge = `<span class="status-badge sold">SOLD - ${player.soldTo} (₹${player.soldPrice.toFixed(1)}Cr)</span>`;
+            statusBadge = `<span class="status-badge sold">SOLD → ${player.soldTo} (₹${Number(player.soldPrice).toFixed(1)}Cr)</span>`;
+        } else if (player.status === 'passed') {
+            statusBadge = `<span class="status-badge" style="background:#ff9800;color:#fff;">UNSOLD</span>`;
         } else {
             statusBadge = `<span class="status-badge unsold">Available</span>`;
         }
@@ -1179,7 +1183,8 @@ function renderPlayers() {
             ${statusBadge}
         `;
         
-        if (player.status === 'unsold' && isHost) {
+        // Host can click any non-sold player to manually auction them
+        if (player.status !== 'sold' && isHost) {
             card.style.cursor = 'pointer';
             card.onclick = () => selectPlayer(player);
         }
@@ -1198,8 +1203,14 @@ async function selectPlayer(player) {
         return;
     }
     
-    if (player.status !== 'unsold') {
+    if (player.status === 'sold') {
         alert('This player has already been sold!');
+        return;
+    }
+    
+    // If currently another player is on auction, don't allow selecting new one
+    if (currentPlayerOnAuction) {
+        alert('Finish the current auction first (Sold/Unsold) before selecting a new player!');
         return;
     }
     
@@ -1269,14 +1280,29 @@ window.startNextPlayer = async function() {
         console.warn('Could not fetch fresh players, using local:', e);
     }
 
+    // ⭐ Only pick players that have never been auctioned yet (no status = fresh, 'unsold' = not yet put up)
+    // 'passed' = was auctioned with no bids, 'sold' = already bought
     const availablePlayers = players.filter(
-        p => p && (p.status === 'unsold' || !p.status)
+        p => p && (!p.status || p.status === 'unsold')
     );
 
     if (availablePlayers.length > 0) {
         await selectPlayer(availablePlayers[0]);
     } else {
-        alert('🎉 All players in this set have been auctioned!');
+        // Check if there are any passed players that could be re-auctioned
+        const passedPlayers = players.filter(p => p && p.status === 'passed');
+        if (passedPlayers.length > 0) {
+            if (isHost && confirm(`🎉 All players have been auctioned!\n\n${passedPlayers.length} player(s) went unsold:\n${passedPlayers.map(p => p.name).join(', ')}\n\nDo you want to re-auction the unsold players?`)) {
+                // Reset passed players back to unsold for re-auction
+                passedPlayers.forEach(p => { p.status = 'unsold'; });
+                await saveToFirebase();
+                await selectPlayer(players.find(p => p.status === 'unsold'));
+            } else if (!isHost) {
+                // Non-host just sees a notification
+            }
+        } else {
+            alert('🎉 All players in this set have been auctioned!');
+        }
     }
 }
 
@@ -1407,12 +1433,12 @@ window.unsoldPlayer = async function() {
     try {
         stopAuctionTimer();
         
-        // ⭐ Update player status in local array by id
+        // ⭐ Mark as 'passed' so they don't loop back into auction immediately
         const playerIndex = players.findIndex(
             p => Number(p.id) === Number(currentPlayerOnAuction.id)
         );
         if (playerIndex !== -1) {
-            players[playerIndex].status = 'unsold';
+            players[playerIndex].status = 'passed';
             players[playerIndex].soldTo = null;
             players[playerIndex].soldPrice = 0;
         }
