@@ -543,8 +543,8 @@ function setupFirebaseListeners() {
             const savedPlayer = data.currentPlayer;
             const player = players.find(p => Number(p.id) === Number(savedPlayer.id));
 
-            // Accept player whether status is 'unsold' or undefined (freshly added)
-            if (player && (player.status === 'unsold' || !player.status)) {
+            // Accept player if they are inauction or unsold (freshly selected)
+            if (player && (player.status === 'inauction' || player.status === 'unsold' || !player.status)) {
                 const bidChanged = (currentBid !== savedPlayer.currentBid) || 
                                  (highestBidder !== savedPlayer.highestBidder);
                 
@@ -560,7 +560,6 @@ function setupFirebaseListeners() {
                 }
             }
         } else if (!data.currentPlayer && !auctionResolving && currentPlayerOnAuction) {
-            // Only reset if we are NOT mid-processing
             stopAuctionTimer();
             resetAuction();
         }
@@ -1203,16 +1202,41 @@ async function selectPlayer(player) {
         return;
     }
     
-    if (player.status === 'sold') {
-        alert('This player has already been sold!');
+    if (player.status === 'sold' || player.status === 'inauction') {
+        alert('This player is not available!');
         return;
     }
     
-    // If currently another player is on auction, don't allow selecting new one
     if (currentPlayerOnAuction) {
         alert('Finish the current auction first (Sold/Unsold) before selecting a new player!');
         return;
     }
+
+    // ⭐ Immediately stamp 'inauction' in Firebase so no other client can pick this player
+    const playerIndex = players.findIndex(p => Number(p.id) === Number(player.id));
+    if (playerIndex !== -1) {
+        players[playerIndex].status = 'inauction';
+    }
+    await set(ref(database, `rooms/${currentRoomId}/currentSet`), players);
+
+    currentPlayerOnAuction = player;
+    currentPlayerOnAuction.status = 'inauction';
+    currentBid = player.basePrice;
+    highestBidder = null;
+    lastBidTime = Date.now();
+    
+    await set(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
+        id: player.id,
+        currentBid: currentBid,
+        highestBidder: null,
+        lastBidTime: lastBidTime
+    });
+    
+    displayCurrentPlayer();
+    startAuctionTimer();
+    
+    speak(`Now on auction: ${player.name}, ${player.role} from ${player.country}.`);
+}
     
     currentPlayerOnAuction = player;
     currentBid = player.basePrice;
@@ -1263,42 +1287,45 @@ window.startNextPlayer = async function() {
         return;
     }
 
-    // ⭐ Fetch fresh data from Firebase to avoid stale local state
+    // ⭐ Always fetch fresh data from Firebase — never trust local players array
+    let freshPlayers = [];
     try {
         const snapshot = await get(ref(database, `rooms/${currentRoomId}/currentSet`));
         if (snapshot.exists()) {
             const raw = snapshot.val();
-            // Normalize Firebase object/array to proper array
-            const freshPlayers = Array.isArray(raw)
+            freshPlayers = Array.isArray(raw)
                 ? raw
                 : Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(k => raw[k]).filter(p => p != null);
-            
-            // Update local players array
-            players = freshPlayers;
+            players = freshPlayers; // sync local
         }
     } catch (e) {
-        console.warn('Could not fetch fresh players, using local:', e);
+        console.warn('Could not fetch fresh players:', e);
+        freshPlayers = players;
     }
 
-    // ⭐ Only pick players that have never been auctioned yet (no status = fresh, 'unsold' = not yet put up)
-    // 'passed' = was auctioned with no bids, 'sold' = already bought
-    const availablePlayers = players.filter(
-        p => p && (!p.status || p.status === 'unsold')
+    console.log('📋 Players status check:', freshPlayers.map(p => `${p.name}:${p.status || 'none'}`));
+
+    // ⭐ Only pick players with no status or explicitly 'unsold' — never 'passed', 'sold', or 'inauction'
+    const availablePlayers = freshPlayers.filter(
+        p => p && (p.status === 'unsold' || p.status === null || p.status === undefined || p.status === '')
     );
+
+    console.log(`✅ Available: ${availablePlayers.length}, Total: ${freshPlayers.length}`);
 
     if (availablePlayers.length > 0) {
         await selectPlayer(availablePlayers[0]);
     } else {
-        // Check if there are any passed players that could be re-auctioned
-        const passedPlayers = players.filter(p => p && p.status === 'passed');
+        const passedPlayers = freshPlayers.filter(p => p && p.status === 'passed');
         if (passedPlayers.length > 0) {
-            if (isHost && confirm(`🎉 All players have been auctioned!\n\n${passedPlayers.length} player(s) went unsold:\n${passedPlayers.map(p => p.name).join(', ')}\n\nDo you want to re-auction the unsold players?`)) {
-                // Reset passed players back to unsold for re-auction
+            if (confirm(`🎉 All players done!\n\n${passedPlayers.length} went unsold:\n${passedPlayers.map(p => p.name).join(', ')}\n\nRe-auction unsold players?`)) {
                 passedPlayers.forEach(p => { p.status = 'unsold'; });
+                players = freshPlayers;
                 await saveToFirebase();
-                await selectPlayer(players.find(p => p.status === 'unsold'));
-            } else if (!isHost) {
-                // Non-host just sees a notification
+                // Small delay then pick first unsold
+                setTimeout(async () => {
+                    const next = players.find(p => p.status === 'unsold');
+                    if (next) await selectPlayer(next);
+                }, 500);
             }
         } else {
             alert('🎉 All players in this set have been auctioned!');
@@ -1539,11 +1566,9 @@ function updatePurse() {
 
 async function saveToFirebase() {
     if (!currentRoomId) return;
-    
-    await update(ref(database, `rooms/${currentRoomId}`), {
-        teams: teams,
-        currentSet: players
-    });
+    // Use set() on the specific fields for atomic writes
+    await set(ref(database, `rooms/${currentRoomId}/teams`), teams);
+    await set(ref(database, `rooms/${currentRoomId}/currentSet`), players);
 }
 
 function speak(text) {
