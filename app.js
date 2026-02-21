@@ -1507,7 +1507,10 @@ async function showSetEndPopup(freshPlayers) {
     // Get all sets to check if this is the last set
     const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
     const roomData = roomSnap.val();
-    const allSets = roomData.playerSets || [];
+    const rawSets = roomData.playerSets || {};
+    const allSets = Array.isArray(rawSets)
+        ? rawSets
+        : Object.keys(rawSets).sort((a,b) => Number(a)-Number(b)).map(k => rawSets[k]);
     const totalSets = allSets.length;
     const isLastSet = currentSetNumber >= totalSets;
 
@@ -1571,7 +1574,13 @@ window.moveToNextSet = async function() {
 
     const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
     const roomData = roomSnap.val();
-    const allSets = roomData.playerSets || [];
+
+    // ⭐ Normalize playerSets — Firebase converts arrays to objects
+    const rawSets = roomData.playerSets || {};
+    const allSets = Array.isArray(rawSets)
+        ? rawSets
+        : Object.keys(rawSets).sort((a,b) => Number(a)-Number(b)).map(k => rawSets[k]);
+
     const nextSetNumber = currentSetNumber + 1;
 
     if (nextSetNumber > allSets.length) {
@@ -1579,14 +1588,19 @@ window.moveToNextSet = async function() {
         return;
     }
 
-    const nextSet = allSets[nextSetNumber - 1];
+    // ⭐ Normalize the next set itself (also may be object)
+    const rawNextSet = allSets[nextSetNumber - 1];
+    const nextSet = Array.isArray(rawNextSet)
+        ? rawNextSet
+        : Object.keys(rawNextSet).sort((a,b) => Number(a)-Number(b)).map(k => rawNextSet[k]);
 
     currentSetNumber = nextSetNumber;
     players = nextSet;
 
+    // ⭐ Use set() not update() to guarantee the array is written cleanly
+    await set(ref(database, `rooms/${currentRoomId}/currentSet`), nextSet);
     await update(ref(database, `rooms/${currentRoomId}`), {
         currentSetNumber: nextSetNumber,
-        currentSet: nextSet,
         setEnded: false
     });
 
@@ -1601,16 +1615,38 @@ window.startAcceleratedAuction = async function() {
     if (popup) popup.remove();
 
     // Collect ALL unsold/passed players from ALL sets
+    // ⭐ Use playerSets from Firebase but cross-reference with actual currentSet statuses
     const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
     const roomData = roomSnap.val();
-    const allSets = roomData.playerSets || [];
+    const rawSets = roomData.playerSets || {};
+    const allSets = Array.isArray(rawSets)
+        ? rawSets
+        : Object.keys(rawSets).sort((a,b) => Number(a)-Number(b)).map(k => rawSets[k]);
+
+    // Also get current set's actual statuses
+    const rawCurrentSet = roomData.currentSet || {};
+    const currentSetPlayers = Array.isArray(rawCurrentSet)
+        ? rawCurrentSet
+        : Object.keys(rawCurrentSet).sort((a,b) => Number(a)-Number(b)).map(k => rawCurrentSet[k]);
+
+    // Build a map of player id → status from currentSet (most up to date)
+    const statusMap = {};
+    currentSetPlayers.forEach(p => { if (p && p.id != null) statusMap[p.id] = p.status; });
 
     const allUnsold = [];
-    allSets.forEach(set => {
-        const setArr = Array.isArray(set) ? set : Object.values(set);
+    // Add passed/unsold from the current set (using real statuses)
+    currentSetPlayers.forEach(p => {
+        if (p && (p.status === 'passed' || p.status === 'unsold' || !p.status)) {
+            allUnsold.push({...p});
+        }
+    });
+    // Add unsold from all OTHER sets (they were never auctioned — no status)
+    allSets.forEach((set, idx) => {
+        if (idx === currentSetNumber - 1) return; // skip current set, already handled
+        const setArr = Array.isArray(set) ? set : Object.keys(set).sort((a,b)=>Number(a)-Number(b)).map(k=>set[k]);
         setArr.forEach(p => {
-            if (p && (p.status === 'passed' || p.status === 'unsold' || !p.status)) {
-                allUnsold.push(p);
+            if (p && (!p.status || p.status === 'unsold' || p.status === 'passed')) {
+                allUnsold.push({...p, status: 'unsold'});
             }
         });
     });
