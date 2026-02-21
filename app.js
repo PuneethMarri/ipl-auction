@@ -1136,12 +1136,7 @@ async function autoSellPlayer() {
                 if (!isHost) return;
                 const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
                 if (snap.val() === true) {
-                    const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
-                    const accelRaw = accelSnap.val();
-                    const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
-                    const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
-                    if (nextAccel) await selectPlayerAccelerated(nextAccel);
-                    else await showAuctionComplete();
+                    await nextAcceleratedPlayer();
                 } else {
                     await startNextPlayer();
                 }
@@ -1166,12 +1161,7 @@ async function autoSellPlayer() {
                 if (!isHost) return;
                 const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
                 if (snap.val() === true) {
-                    const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
-                    const accelRaw = accelSnap.val();
-                    const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
-                    const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
-                    if (nextAccel) await selectPlayerAccelerated(nextAccel);
-                    else await showAuctionComplete();
+                    await nextAcceleratedPlayer();
                 } else {
                     await startNextPlayer();
                 }
@@ -1215,12 +1205,7 @@ async function autoSellPlayer() {
             const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
             if (snap.val() === true) {
                 // Pick next accelerated player
-                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
-                const accelRaw = accelSnap.val();
-                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
-                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
-                if (nextAccel) await selectPlayerAccelerated(nextAccel);
-                else await showAuctionComplete();
+                await nextAcceleratedPlayer();
             } else {
                 await startNextPlayer();
             }
@@ -1656,22 +1641,20 @@ window.startAcceleratedAuction = async function() {
         return;
     }
 
-    // Store accelerated players in Firebase
+    // ⭐ Store accelerated players + start index at 0
+    await set(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`), allUnsold);
     await update(ref(database, `rooms/${currentRoomId}`), {
         acceleratedAuction: true,
-        acceleratedPlayers: allUnsold,
+        acceleratedIndex: 0,
         setEnded: false
     });
 
     speak(`Accelerated auction! ${allUnsold.length} unsold players, 5 seconds each!`);
     showAcceleratedAuctionBanner(allUnsold.length);
 
-    // Switch timer to 5 seconds for accelerated mode
-    timeRemaining = 5;
     players = allUnsold;
-
     auctionResolving = false;
-    await selectPlayerAccelerated(allUnsold[0]);
+    await selectPlayerAccelerated(allUnsold[0], 0);
 }
 
 function showAcceleratedAuctionBanner(count) {
@@ -1685,15 +1668,14 @@ function showAcceleratedAuctionBanner(count) {
     document.body.appendChild(banner);
 }
 
-async function selectPlayerAccelerated(player) {
+async function selectPlayerAccelerated(player, index) {
     if (!player) {
         await showAuctionComplete();
         return;
     }
 
-    // Temporarily override timer to 5 seconds
-    const originalStart = startAuctionTimer;
-    timeRemaining = 5;
+    // ⭐ Save current index to Firebase so next-player logic just increments
+    await update(ref(database, `rooms/${currentRoomId}`), { acceleratedIndex: index });
 
     currentPlayerOnAuction = player;
     currentBid = player.basePrice;
@@ -1705,12 +1687,13 @@ async function selectPlayerAccelerated(player) {
         currentBid: currentBid,
         highestBidder: null,
         lastBidTime: lastBidTime,
-        accelerated: true
+        accelerated: true,
+        acceleratedIndex: index
     });
 
     displayCurrentPlayer();
 
-    // 5-second timer for accelerated mode
+    // 5-second timer
     stopAuctionTimer();
     timeRemaining = 5;
     updateTimerDisplay();
@@ -1725,6 +1708,23 @@ async function selectPlayerAccelerated(player) {
     }, 100);
 
     speak(`${player.name}!`);
+}
+
+async function nextAcceleratedPlayer() {
+    const snap = await get(ref(database, `rooms/${currentRoomId}`));
+    const data = snap.val();
+    const currentIndex = Number(data.acceleratedIndex ?? 0);
+    const accelRaw = data.acceleratedPlayers || {};
+    const accelPlayers = Array.isArray(accelRaw)
+        ? accelRaw
+        : Object.keys(accelRaw).sort((a,b)=>Number(a)-Number(b)).map(k=>accelRaw[k]);
+
+    const nextIndex = currentIndex + 1;
+    if (nextIndex >= accelPlayers.length) {
+        await showAuctionComplete();
+    } else {
+        await selectPlayerAccelerated(accelPlayers[nextIndex], nextIndex);
+    }
 }
 
 async function showAuctionComplete() {
@@ -1950,12 +1950,7 @@ window.soldPlayer = async function() {
             if (!isHost) return;
             const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
             if (snap.val() === true) {
-                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
-                const accelRaw = accelSnap.val();
-                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
-                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
-                if (nextAccel) await selectPlayerAccelerated(nextAccel);
-                else await showAuctionComplete();
+                await nextAcceleratedPlayer();
             } else {
                 await startNextPlayer();
             }
@@ -2010,12 +2005,7 @@ window.unsoldPlayer = async function() {
             if (!isHost) return;
             const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
             if (snap.val() === true) {
-                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
-                const accelRaw = accelSnap.val();
-                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
-                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
-                if (nextAccel) await selectPlayerAccelerated(nextAccel);
-                else await showAuctionComplete();
+                await nextAcceleratedPlayer();
             } else {
                 await startNextPlayer();
             }
