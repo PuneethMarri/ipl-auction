@@ -1333,14 +1333,12 @@ window.soldPlayer = async function() {
             return;
         }
 
-        players[playerIndex] = {
-            ...players[playerIndex],
-            status: 'sold',
-            soldTo: highestBidder,
-            soldPrice: currentBid
-        };
+        players[playerIndex].status = 'sold';
+        players[playerIndex].soldTo = highestBidder;
+        players[playerIndex].soldPrice = currentBid;
+        
         await update(
-            ref(database, `rooms/${currentRoomId}/currentSet/${currentPlayerOnAuction.id}`),
+            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
             {
                 status: 'sold',
                 soldTo: highestBidder,
@@ -1384,9 +1382,24 @@ window.unsoldPlayer = async function() {
     
     stopAuctionTimer();
     
+    const playerIndex = players.findIndex(
+        p => Number(p.id) === Number(currentPlayerOnAuction.id)
+    );
+    if (playerIndex !== -1) {
+        players[playerIndex].status = 'unsold';
+        players[playerIndex].soldTo = null;
+        players[playerIndex].soldPrice = 0;
+        await update(
+            ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
+            {
+                status: 'unsold',
+                soldTo: null,
+                soldPrice: 0
+            }
+        );
+    }
     await addToHistory(`${currentPlayerOnAuction.name} went UNSOLD`, 'unsold');
     speak(`${currentPlayerOnAuction.name} remains unsold.`);
-    
     await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
     resetAuction();
 }
