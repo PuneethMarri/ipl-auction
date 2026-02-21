@@ -52,46 +52,43 @@ let roomDataListener = null;
 let auctionResolving = false;
 
 window.onload = function() {
-
-    cleanupExpiredRooms();   // ⭐ ADD THIS LINE
-
     // Populate teams immediately
     populateTeamSelect();
     
     loadPlayersFromCSV().then(() => {
         console.log('✅ App initialized');
-        ...
+        
+        // Check if URL has room parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const roomId = urlParams.get('room');
+        const password = urlParams.get('pass');
+        
+        if (roomId && password) {
+            // Auto-fill the form
+            setTimeout(() => {
+                const roomIdInput = document.getElementById('roomId');
+                const passwordInput = document.getElementById('roomPassword');
+                
+                if (roomIdInput) roomIdInput.value = roomId;
+                if (passwordInput) passwordInput.value = password;
+                
+                // Show helpful message
+                const loginBox = document.querySelector('.login-box');
+                if (loginBox) {
+                    const notice = document.createElement('div');
+                    notice.style.cssText = 'background: rgba(76, 175, 80, 0.2); border: 2px solid #4CAF50; border-radius: 10px; padding: 15px; margin-bottom: 20px; text-align: center;';
+                    notice.innerHTML = `
+                        <strong style="color: #4CAF50; font-size: 1.1em;">✅ Room Credentials Loaded!</strong>
+                        <p style="color: #aaa; margin-top: 8px; font-size: 0.9em;">Just select your team and enter your name to join!</p>
+                    `;
+                    loginBox.insertBefore(notice, loginBox.children[2]);
+                }
+                
+                console.log('🔗 Auto-filled room credentials from URL');
+            }, 100);
+        }
     });
 };
-
-async function cleanupExpiredRooms() {
-    try {
-        const roomsRef = ref(database, "rooms");
-        const snapshot = await get(roomsRef);
-
-        if (!snapshot.exists()) return;
-
-        const updates = {};
-
-        snapshot.forEach(roomSnap => {
-            const roomId = roomSnap.key;
-            const roomData = roomSnap.val();
-
-            if (roomData.expiresAt && Date.now() > roomData.expiresAt) {
-                console.log("🗑️ Deleting expired room:", roomId);
-                updates[`rooms/${roomId}`] = null;
-            }
-        });
-
-        if (Object.keys(updates).length > 0) {
-            await update(ref(database), updates);
-            console.log("✅ Expired rooms cleaned");
-        }
-
-    } catch (error) {
-        console.warn("Cleanup failed:", error);
-    }
-}
 
 function populateTeamSelect() {
     const select = document.getElementById('teamSelect');
