@@ -51,10 +51,10 @@ let timerDisplay = null;
 let roomDataListener = null;
 let auctionResolving = false;
 
+// Run immediately at module load - DOM is ready because modules are deferred
+populateTeamSelect();
+
 window.onload = function() {
-    // Populate teams immediately
-    populateTeamSelect();
-    
     loadPlayersFromCSV().then(() => {
         console.log('✅ App initialized');
         
