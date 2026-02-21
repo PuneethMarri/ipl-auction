@@ -989,12 +989,12 @@ async function autoSellPlayer() {
     }
 
     await update(
-    ref(database, `rooms/${currentRoomId}/currentSet/${playerIndex}`),
-    {
-        status: 'sold',
-        soldTo: highestBidder,
-        soldPrice: currentBid
-    }
+        ref(database, `rooms/${currentRoomId}/currentSet/${currentPlayerOnAuction.id}`),
+        {
+            status: 'sold',
+            soldTo: highestBidder,
+            soldPrice: currentBid
+        }
     );
 
 
