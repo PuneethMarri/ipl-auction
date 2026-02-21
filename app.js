@@ -688,10 +688,21 @@ function setupFirebaseListeners() {
         if (isHost && !data.auctionStarted) {
             checkAllReady();
         }
+
+        // ⭐ Show auction complete screen to ALL clients
+        if (data.auctionComplete && !document.getElementById('completionScreen')) {
+            showCompletionScreen();
+            return;
+        }
+
+        // ⭐ Show accelerated banner to non-host clients
+        if (data.acceleratedAuction && !document.getElementById('accelBanner')) {
+            const count = (data.acceleratedPlayers || []).length;
+            showAcceleratedAuctionBanner(count);
+        }
         
         // Update auction started state
         if (data.auctionStarted && !currentPlayerOnAuction && !data.currentPlayer) {
-            // Auction started but no player selected - show message
             document.getElementById('noPlayerMessage').style.display = 'block';
         }
         
@@ -1120,7 +1131,21 @@ async function autoSellPlayer() {
             resetAuction();
             renderPlayers(); renderHistory();
 
-            setTimeout(async () => { auctionResolving = false; if (isHost) await startNextPlayer(); }, 2000);
+            setTimeout(async () => {
+                auctionResolving = false;
+                if (!isHost) return;
+                const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
+                if (snap.val() === true) {
+                    const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
+                    const accelRaw = accelSnap.val();
+                    const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
+                    const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
+                    if (nextAccel) await selectPlayerAccelerated(nextAccel);
+                    else await showAuctionComplete();
+                } else {
+                    await startNextPlayer();
+                }
+            }, 1500);
             return;
         }
 
@@ -1136,7 +1161,21 @@ async function autoSellPlayer() {
             await set(ref(database, `rooms/${currentRoomId}/history`), auctionHistory);
             await remove(ref(database, `rooms/${currentRoomId}/currentPlayer`));
             resetAuction(); renderHistory();
-            setTimeout(async () => { auctionResolving = false; if (isHost) await startNextPlayer(); }, 2000);
+            setTimeout(async () => {
+                auctionResolving = false;
+                if (!isHost) return;
+                const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
+                if (snap.val() === true) {
+                    const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
+                    const accelRaw = accelSnap.val();
+                    const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
+                    const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
+                    if (nextAccel) await selectPlayerAccelerated(nextAccel);
+                    else await showAuctionComplete();
+                } else {
+                    await startNextPlayer();
+                }
+            }, 1500);
             return;
         }
 
@@ -1169,7 +1208,23 @@ async function autoSellPlayer() {
         resetAuction();
         renderTeams(); renderPlayers(); updateStats(); updatePurse(); renderHistory();
 
-        setTimeout(async () => { auctionResolving = false; if (isHost) await startNextPlayer(); }, 2000);
+        setTimeout(async () => {
+            auctionResolving = false;
+            if (!isHost) return;
+            // Check if in accelerated mode
+            const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
+            if (snap.val() === true) {
+                // Pick next accelerated player
+                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
+                const accelRaw = accelSnap.val();
+                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
+                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
+                if (nextAccel) await selectPlayerAccelerated(nextAccel);
+                else await showAuctionComplete();
+            } else {
+                await startNextPlayer();
+            }
+        }, 1500);
 
     } catch(e) {
         console.error('autoSellPlayer error:', e);
@@ -1416,7 +1471,7 @@ window.startNextPlayer = async function() {
         return;
     }
 
-    // ⭐ Always fetch fresh data from Firebase — never trust local players array
+    // Always fetch fresh data from Firebase
     let freshPlayers = [];
     try {
         const snapshot = await get(ref(database, `rooms/${currentRoomId}/currentSet`));
@@ -1425,41 +1480,337 @@ window.startNextPlayer = async function() {
             freshPlayers = Array.isArray(raw)
                 ? raw
                 : Object.keys(raw).sort((a, b) => Number(a) - Number(b)).map(k => raw[k]).filter(p => p != null);
-            players = freshPlayers; // sync local
+            players = freshPlayers;
         }
     } catch (e) {
-        console.warn('Could not fetch fresh players:', e);
         freshPlayers = players;
     }
 
-    console.log('📋 Players status check:', freshPlayers.map(p => `${p.name}:${p.status || 'none'}`));
-
-    // ⭐ Only pick players with no status or explicitly 'unsold' — never 'passed', 'sold', or 'inauction'
     const availablePlayers = freshPlayers.filter(
         p => p && (p.status === 'unsold' || p.status === null || p.status === undefined || p.status === '')
     );
 
-    console.log(`✅ Available: ${availablePlayers.length}, Total: ${freshPlayers.length}`);
-
     if (availablePlayers.length > 0) {
         await selectPlayer(availablePlayers[0]);
     } else {
-        const passedPlayers = freshPlayers.filter(p => p && p.status === 'passed');
-        if (passedPlayers.length > 0) {
-            if (confirm(`🎉 All players done!\n\n${passedPlayers.length} went unsold:\n${passedPlayers.map(p => p.name).join(', ')}\n\nRe-auction unsold players?`)) {
-                passedPlayers.forEach(p => { p.status = 'unsold'; });
-                players = freshPlayers;
-                await saveToFirebase();
-                // Small delay then pick first unsold
-                setTimeout(async () => {
-                    const next = players.find(p => p.status === 'unsold');
-                    if (next) await selectPlayer(next);
-                }, 500);
-            }
-        } else {
-            alert('🎉 All players in this set have been auctioned!');
-        }
+        // All players in this set are done — show end-of-set popup
+        await showSetEndPopup(freshPlayers);
     }
+}
+
+// ⭐ Show popup when a set is fully done
+async function showSetEndPopup(freshPlayers) {
+    if (!isHost) return;
+
+    const passedPlayers = freshPlayers.filter(p => p && p.status === 'passed');
+
+    // Get all sets to check if this is the last set
+    const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
+    const roomData = roomSnap.val();
+    const allSets = roomData.playerSets || [];
+    const totalSets = allSets.length;
+    const isLastSet = currentSetNumber >= totalSets;
+
+    // Tell all clients a set ended
+    await update(ref(database, `rooms/${currentRoomId}`), { setEnded: true });
+
+    const popup = document.createElement('div');
+    popup.id = 'setEndPopup';
+    popup.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.92);z-index:10000;display:flex;justify-content:center;align-items:center;';
+
+    popup.innerHTML = `
+        <div style="background:linear-gradient(135deg,#1a1f3a,#2a2f4a);border:4px solid #d4af37;border-radius:20px;padding:40px;max-width:520px;width:92%;text-align:center;box-shadow:0 20px 60px rgba(212,175,55,0.5);">
+            <h2 style="color:#d4af37;font-size:2em;margin-bottom:10px;">🏏 Set ${currentSetNumber} Complete!</h2>
+            <p style="color:#aaa;margin-bottom:25px;">${freshPlayers.filter(p=>p.status==='sold').length} sold · ${passedPlayers.length} unsold</p>
+
+            ${passedPlayers.length > 0 ? `
+            <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:15px;margin-bottom:25px;max-height:150px;overflow-y:auto;text-align:left;">
+                <p style="color:#ff9800;font-weight:bold;margin-bottom:8px;">Unsold Players:</p>
+                ${passedPlayers.map(p=>`<div style="color:#aaa;padding:4px 0;font-size:0.9em;">• ${p.name} (${p.role})</div>`).join('')}
+            </div>` : ''}
+
+            <div style="display:grid;gap:15px;">
+                ${passedPlayers.length > 0 ? `
+                <button onclick="reAuctionUnsold()" style="padding:18px;background:linear-gradient(135deg,#ff9800,#f57c00);border:none;border-radius:12px;color:#fff;font-size:1.1em;font-weight:bold;cursor:pointer;">
+                    🔄 Re-auction ${passedPlayers.length} Unsold Player${passedPlayers.length>1?'s':''}
+                </button>` : ''}
+
+                ${!isLastSet ? `
+                <button onclick="moveToNextSet()" style="padding:18px;background:linear-gradient(135deg,#4CAF50,#388e3c);border:none;border-radius:12px;color:#fff;font-size:1.1em;font-weight:bold;cursor:pointer;">
+                    ➡️ Next Set (Set ${currentSetNumber + 1} of ${totalSets})
+                </button>` : ''}
+
+                ${isLastSet ? `
+                <button onclick="startAcceleratedAuction()" style="padding:18px;background:linear-gradient(135deg,#e91e63,#c2185b);border:none;border-radius:12px;color:#fff;font-size:1.1em;font-weight:bold;cursor:pointer;">
+                    ⚡ Start Accelerated Auction (All Unsold)
+                </button>` : ''}
+            </div>
+        </div>
+    `;
+    document.body.appendChild(popup);
+    speak(`Set ${currentSetNumber} complete!`);
+}
+
+window.reAuctionUnsold = async function() {
+    const popup = document.getElementById('setEndPopup');
+    if (popup) popup.remove();
+
+    // Reset all passed players to unsold in current set
+    players.forEach(p => { if (p.status === 'passed') p.status = 'unsold'; });
+    await set(ref(database, `rooms/${currentRoomId}/currentSet`), players);
+    await update(ref(database, `rooms/${currentRoomId}`), { setEnded: false });
+
+    auctionResolving = false;
+    speak('Re-auctioning unsold players!');
+    await startNextPlayer();
+}
+
+window.moveToNextSet = async function() {
+    const popup = document.getElementById('setEndPopup');
+    if (popup) popup.remove();
+
+    const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
+    const roomData = roomSnap.val();
+    const allSets = roomData.playerSets || [];
+    const nextSetNumber = currentSetNumber + 1;
+
+    if (nextSetNumber > allSets.length) {
+        await startAcceleratedAuction();
+        return;
+    }
+
+    const nextSet = allSets[nextSetNumber - 1];
+
+    currentSetNumber = nextSetNumber;
+    players = nextSet;
+
+    await update(ref(database, `rooms/${currentRoomId}`), {
+        currentSetNumber: nextSetNumber,
+        currentSet: nextSet,
+        setEnded: false
+    });
+
+    auctionResolving = false;
+    speak(`Starting set ${nextSetNumber}!`);
+    await startNextPlayer();
+}
+
+// ⭐ Accelerated auction — 5 seconds per unsold player across ALL sets
+window.startAcceleratedAuction = async function() {
+    const popup = document.getElementById('setEndPopup');
+    if (popup) popup.remove();
+
+    // Collect ALL unsold/passed players from ALL sets
+    const roomSnap = await get(ref(database, `rooms/${currentRoomId}`));
+    const roomData = roomSnap.val();
+    const allSets = roomData.playerSets || [];
+
+    const allUnsold = [];
+    allSets.forEach(set => {
+        const setArr = Array.isArray(set) ? set : Object.values(set);
+        setArr.forEach(p => {
+            if (p && (p.status === 'passed' || p.status === 'unsold' || !p.status)) {
+                allUnsold.push(p);
+            }
+        });
+    });
+
+    if (allUnsold.length === 0) {
+        await showAuctionComplete();
+        return;
+    }
+
+    // Store accelerated players in Firebase
+    await update(ref(database, `rooms/${currentRoomId}`), {
+        acceleratedAuction: true,
+        acceleratedPlayers: allUnsold,
+        setEnded: false
+    });
+
+    speak(`Accelerated auction! ${allUnsold.length} unsold players, 5 seconds each!`);
+    showAcceleratedAuctionBanner(allUnsold.length);
+
+    // Switch timer to 5 seconds for accelerated mode
+    timeRemaining = 5;
+    players = allUnsold;
+
+    auctionResolving = false;
+    await selectPlayerAccelerated(allUnsold[0]);
+}
+
+function showAcceleratedAuctionBanner(count) {
+    const existing = document.getElementById('accelBanner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'accelBanner';
+    banner.style.cssText = 'position:fixed;top:0;left:0;width:100%;background:linear-gradient(135deg,#e91e63,#c2185b);color:#fff;text-align:center;padding:12px;font-size:1.1em;font-weight:bold;z-index:9999;';
+    banner.innerHTML = `⚡ ACCELERATED AUCTION — ${count} unsold players — 5 seconds each!`;
+    document.body.appendChild(banner);
+}
+
+async function selectPlayerAccelerated(player) {
+    if (!player) {
+        await showAuctionComplete();
+        return;
+    }
+
+    // Temporarily override timer to 5 seconds
+    const originalStart = startAuctionTimer;
+    timeRemaining = 5;
+
+    currentPlayerOnAuction = player;
+    currentBid = player.basePrice;
+    highestBidder = null;
+    lastBidTime = Date.now();
+
+    await set(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
+        id: player.id,
+        currentBid: currentBid,
+        highestBidder: null,
+        lastBidTime: lastBidTime,
+        accelerated: true
+    });
+
+    displayCurrentPlayer();
+
+    // 5-second timer for accelerated mode
+    stopAuctionTimer();
+    timeRemaining = 5;
+    updateTimerDisplay();
+    auctionTimer = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - lastBidTime) / 1000);
+        timeRemaining = Math.max(0, 5 - elapsed);
+        updateTimerDisplay();
+        if (timeRemaining === 0) {
+            stopAuctionTimer();
+            autoSellPlayer();
+        }
+    }, 100);
+
+    speak(`${player.name}!`);
+}
+
+async function showAuctionComplete() {
+    // Remove accelerated banner
+    const banner = document.getElementById('accelBanner');
+    if (banner) banner.remove();
+
+    await update(ref(database, `rooms/${currentRoomId}`), {
+        auctionComplete: true,
+        acceleratedAuction: false
+    });
+
+    showCompletionScreen();
+}
+
+function showCompletionScreen() {
+    const existing = document.getElementById('completionScreen');
+    if (existing) existing.remove();
+
+    const modal = document.createElement('div');
+    modal.id = 'completionScreen';
+    modal.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:10000;display:flex;justify-content:center;align-items:center;overflow-y:auto;';
+
+    const totalSpent = teams.reduce((s, t) => s + (t.spent || 0), 0);
+
+    let teamsHTML = teams.map(team => `
+        <div style="background:rgba(0,0,0,0.4);border:2px solid ${team.name===currentUser?.team?'#d4af37':'#444'};border-radius:12px;padding:15px;text-align:left;">
+            <div style="color:#d4af37;font-weight:bold;font-size:1em;margin-bottom:5px;">${team.name}</div>
+            <div style="color:#aaa;font-size:0.85em;">👤 ${team.owner||'—'} · ${(team.players||[]).length} players · ₹${(team.spent||0).toFixed(1)}Cr spent</div>
+        </div>
+    `).join('');
+
+    modal.innerHTML = `
+        <div style="background:linear-gradient(135deg,#1a1f3a,#2a2f4a);border:4px solid #d4af37;border-radius:20px;padding:40px;max-width:650px;width:94%;text-align:center;box-shadow:0 20px 60px rgba(212,175,55,0.6);margin:20px auto;">
+            <div style="font-size:3em;margin-bottom:10px;">🏆</div>
+            <h1 style="color:#d4af37;font-size:2em;margin-bottom:8px;">Auction Complete!</h1>
+            <p style="color:#aaa;margin-bottom:25px;">₹${totalSpent.toFixed(1)}Cr total spent across all teams</p>
+
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:30px;">
+                ${teamsHTML}
+            </div>
+
+            <p style="color:#4CAF50;font-size:1.1em;margin-bottom:20px;font-weight:bold;">📥 Download your team's squad PDF below</p>
+
+            <div style="display:grid;gap:10px;">
+                ${teams.map(team => `
+                    <button onclick="downloadTeamPDF('${team.name.replace(/'/g,"\\'")}')"
+                        style="padding:14px;background:${team.name===currentUser?.team?'linear-gradient(135deg,#d4af37,#f4d03f)':'linear-gradient(135deg,#333,#555)'};
+                        border:none;border-radius:10px;color:${team.name===currentUser?.team?'#000':'#fff'};
+                        font-size:1em;font-weight:bold;cursor:pointer;">
+                        📄 ${team.name} Squad PDF ${team.name===currentUser?.team?'⭐':''}
+                    </button>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+    speak('Congratulations! The auction is complete! Download your team PDF now!');
+}
+
+window.downloadTeamPDF = function(teamName) {
+    const team = teams.find(t => t.name === teamName);
+    if (!team) return;
+
+    // Build HTML for PDF using print dialog (works in all browsers, no library needed)
+    const playerRows = (team.players || []).map((p, i) => `
+        <tr style="background:${i%2===0?'#f9f9f9':'#fff'}">
+            <td style="padding:8px 12px;border:1px solid #ddd;">${i+1}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;font-weight:bold;">${p.name}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;">${p.role}</td>
+            <td style="padding:8px 12px;border:1px solid #ddd;color:#1a7a4a;font-weight:bold;">₹${Number(p.price).toFixed(1)} Cr</td>
+        </tr>
+    `).join('');
+
+    const totalSpent = (team.players || []).reduce((s, p) => s + Number(p.price), 0);
+    const purseLeft = Number(team.purse);
+
+    const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <title>${team.name} — IPL Auction 2026</title>
+        <style>
+            body { font-family: Arial, sans-serif; margin: 0; padding: 30px; color: #222; }
+            .header { background: linear-gradient(135deg, #1a1f3a, #2a2f4a); color: #d4af37; padding: 30px; border-radius: 10px; text-align: center; margin-bottom: 25px; }
+            .header h1 { margin: 0 0 6px; font-size: 2em; }
+            .header p { margin: 0; color: #aaa; font-size: 1em; }
+            .stats { display: flex; gap: 15px; margin-bottom: 25px; }
+            .stat { flex: 1; background: #f0f4ff; border-radius: 8px; padding: 15px; text-align: center; border: 2px solid #d4af37; }
+            .stat .val { font-size: 1.6em; font-weight: bold; color: #1a1f3a; }
+            .stat .lbl { color: #666; font-size: 0.85em; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; }
+            th { background: #1a1f3a; color: #d4af37; padding: 10px 12px; text-align: left; }
+            tr:hover { background: #fffbea !important; }
+            .footer { margin-top: 25px; text-align: center; color: #aaa; font-size: 0.85em; }
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <h1>🏏 ${team.name}</h1>
+            <p>IPL Mega Auction 2026 — Official Squad</p>
+        </div>
+        <div class="stats">
+            <div class="stat"><div class="val">${(team.players||[]).length}</div><div class="lbl">Players Bought</div></div>
+            <div class="stat"><div class="val">₹${totalSpent.toFixed(1)} Cr</div><div class="lbl">Total Spent</div></div>
+            <div class="stat"><div class="val">₹${purseLeft.toFixed(1)} Cr</div><div class="lbl">Purse Remaining</div></div>
+        </div>
+        <table>
+            <thead><tr><th>#</th><th>Player</th><th>Role</th><th>Price</th></tr></thead>
+            <tbody>${playerRows}</tbody>
+        </table>
+        <div class="footer">Generated on ${new Date().toLocaleDateString()} · IPL Auction 2026</div>
+    </body>
+    </html>`;
+
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => win.print(), 500);
 }
 
 window.placeBid = async function() {
@@ -1560,7 +1911,18 @@ window.soldPlayer = async function() {
         // ⭐ Keep auctionResolving = true while we wait, then start next player
         setTimeout(async () => {
             auctionResolving = false;
-            await startNextPlayer();
+            if (!isHost) return;
+            const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
+            if (snap.val() === true) {
+                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
+                const accelRaw = accelSnap.val();
+                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
+                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
+                if (nextAccel) await selectPlayerAccelerated(nextAccel);
+                else await showAuctionComplete();
+            } else {
+                await startNextPlayer();
+            }
         }, 2000);
 
     } catch(e) {
@@ -1609,7 +1971,18 @@ window.unsoldPlayer = async function() {
 
         setTimeout(async () => {
             auctionResolving = false;
-            await startNextPlayer();
+            if (!isHost) return;
+            const snap = await get(ref(database, `rooms/${currentRoomId}/acceleratedAuction`));
+            if (snap.val() === true) {
+                const accelSnap = await get(ref(database, `rooms/${currentRoomId}/acceleratedPlayers`));
+                const accelRaw = accelSnap.val();
+                const accelPlayers = Array.isArray(accelRaw) ? accelRaw : Object.values(accelRaw || {});
+                const nextAccel = accelPlayers.find(p => !p.status || p.status === 'unsold');
+                if (nextAccel) await selectPlayerAccelerated(nextAccel);
+                else await showAuctionComplete();
+            } else {
+                await startNextPlayer();
+            }
         }, 2000);
 
     } catch(e) {
