@@ -1337,8 +1337,18 @@ function renderTeams() {
     if (!container) return;
 
     container.innerHTML = '';
-    
-    (teams || []).forEach(team => {
+
+    // Only show teams that are actually being played (an owner has joined).
+    const activeTeams = (teams || []).filter(
+        t => t && t.owner && String(t.owner).trim() !== ''
+    );
+
+    if (activeTeams.length === 0) {
+        container.innerHTML = '<p style="color: #666; text-align: center; padding: 10px;">No teams have joined yet...</p>';
+        return;
+    }
+
+    activeTeams.forEach(team => {
 
         if (!team) return;   // ⭐ prevents your crash
 
