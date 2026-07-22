@@ -2,7 +2,7 @@
 // Random player sets, Ready system, 15-second auto-sell
 
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, get, onValue, update, remove, onDisconnect } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+import { getDatabase, ref, set, get, onValue, update, remove, onDisconnect, runTransaction } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBJBwF80s_3to-kNB7-TU9BZtkNQIOhEis",
@@ -58,6 +58,17 @@ window.onload = function() {
     loadPlayersFromCSV().then(async () => {
         console.log('✅ App initialized');
 
+        // ⭐ Delete any rooms older than 24h so their names can be reused
+        cleanupExpiredRooms();
+
+        // ⭐ When the user types/pastes a Room ID, show only teams still
+        // available in that room (so joiners don't pick a taken team).
+        const roomIdInput = document.getElementById('roomId');
+        if (roomIdInput) {
+            roomIdInput.addEventListener('change', refreshAvailableTeams);
+            roomIdInput.addEventListener('blur', refreshAvailableTeams);
+        }
+
         // ⭐ Check for saved session - auto-rejoin on refresh
         const saved = localStorage.getItem('iplAuctionSession');
         if (saved) {
@@ -86,7 +97,10 @@ window.onload = function() {
                 
                 if (roomIdInput) roomIdInput.value = roomId;
                 if (passwordInput) passwordInput.value = password;
-                
+
+                // Show only available teams for this room
+                refreshAvailableTeams();
+
                 const loginBox = document.querySelector('.login-box');
                 if (loginBox) {
                     const notice = document.createElement('div');
@@ -168,16 +182,18 @@ async function autoRejoinSession(session) {
     }
 }
 
-function populateTeamSelect() {
+function populateTeamSelect(takenSet) {
     const select = document.getElementById('teamSelect');
     if (!select) {
         console.error('❌ Team select element not found');
         return;
     }
-    
+
+    const prev = select.value;
+
     // Clear all existing options
     select.innerHTML = '';
-    
+
     // Add placeholder
     const placeholder = document.createElement('option');
     placeholder.value = '';
@@ -185,16 +201,76 @@ function populateTeamSelect() {
     placeholder.disabled = true;
     placeholder.selected = true;
     select.appendChild(placeholder);
-    
-    // Add all teams
+
+    // Add teams that are still available (skip ones already taken in the room)
+    let shown = 0;
     teams.forEach(team => {
+        if (takenSet && takenSet.has(team.name)) return;
         const option = document.createElement('option');
         option.value = team.name;
         option.textContent = team.name;
         select.appendChild(option);
+        shown++;
     });
-    
-    console.log('✅ Populated team select with', teams.length, 'teams');
+
+    // Keep the previous pick if it's still available
+    if (prev && (!takenSet || !takenSet.has(prev))) select.value = prev;
+
+    console.log('✅ Populated team select with', shown, 'available team(s)');
+}
+
+// ⭐ Look up the room being entered and restrict the dropdown to available teams.
+// New/unknown/expired rooms show all teams.
+async function refreshAvailableTeams() {
+    const roomIdInput = document.getElementById('roomId');
+    if (!roomIdInput) return;
+    const roomId = roomIdInput.value.trim();
+    if (!roomId) { populateTeamSelect(); return; }
+
+    try {
+        const snap = await get(ref(database, `rooms/${roomId}`));
+        if (!snap.exists()) { populateTeamSelect(); return; }
+
+        const data = snap.val();
+        // Expired rooms are reusable, so treat as brand new
+        if (data.expiresAt && Date.now() > data.expiresAt) { populateTeamSelect(); return; }
+
+        const roomTeams = Array.isArray(data.teams)
+            ? data.teams
+            : Object.values(data.teams || {});
+        const taken = new Set(
+            roomTeams
+                .filter(t => t && t.owner && String(t.owner).trim() !== '')
+                .map(t => t.name)
+        );
+        populateTeamSelect(taken);
+    } catch (e) {
+        console.warn('Could not load room teams:', e);
+        populateTeamSelect();
+    }
+}
+
+// ⭐ Remove rooms whose 24h lifetime has passed so the same Room ID can be reused.
+async function cleanupExpiredRooms() {
+    try {
+        const snap = await get(ref(database, 'rooms'));
+        if (!snap.exists()) return;
+        const rooms = snap.val();
+        const now = Date.now();
+        const updates = {};
+        Object.keys(rooms).forEach(id => {
+            const r = rooms[id];
+            if (r && r.expiresAt && now > r.expiresAt) {
+                updates[`rooms/${id}`] = null; // null = delete in a multi-path update
+            }
+        });
+        if (Object.keys(updates).length > 0) {
+            await update(ref(database), updates);
+            console.log('🧹 Cleaned up expired rooms:', Object.keys(updates));
+        }
+    } catch (e) {
+        console.warn('Expired-room cleanup failed:', e);
+    }
 }
 
 async function loadPlayersFromCSV() {
@@ -377,8 +453,15 @@ window.createRoom = async function() {
         const snapshot = await get(roomRef);
         
         if (snapshot.exists()) {
-            alert('❌ Room ID already exists! Choose a different ID or join existing room.');
-            return;
+            const existing = snapshot.val();
+            // If the old room is past its 24h lifetime, delete it and reuse the name
+            if (existing && existing.expiresAt && Date.now() > existing.expiresAt) {
+                await remove(roomRef);
+                console.log('🗑️ Removed expired room to reuse name:', roomId);
+            } else {
+                alert('❌ Room ID already exists! Choose a different ID or join existing room.');
+                return;
+            }
         }
         
         currentRoomId = roomId;
@@ -723,7 +806,7 @@ function setupFirebaseListeners() {
                 displayCurrentPlayer();
                 
                 if (bidChanged || !auctionTimer) {
-                    startAuctionTimer();
+                    startAuctionTimer(lastBidTime);
                 }
             }
         } else if (!data.currentPlayer && !auctionResolving && currentPlayerOnAuction) {
@@ -808,7 +891,7 @@ window.shareRoom = function() {
             </div>
             
             <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px;">
-                <button onclick="copyToClipboard('${shareUrl.replace(/'/g, "\\'")}', 'link')" style="padding: 15px; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); border: none; border-radius: 10px; color: white; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: all 0.3s;">
+                <button onclick="copyToClipboard('${shareUrl.replace(/'/g, "\\'")}', 'link', event)" style="padding: 15px; background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%); border: none; border-radius: 10px; color: white; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: all 0.3s;">
                     📋 Copy Link
                 </button>
                 <button onclick="shareViaApps('${shareUrl.replace(/'/g, "\\'")}', '${currentRoomId}', '${currentRoomPassword}')" style="padding: 15px; background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%); border: none; border-radius: 10px; color: white; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: all 0.3s;">
@@ -834,21 +917,25 @@ window.shareRoom = function() {
     };
 }
 
-window.copyToClipboard = async function(text, type) {
+window.copyToClipboard = async function(text, type, ev) {
+    const btn = ev && ev.target ? ev.target : null;
     try {
         await navigator.clipboard.writeText(text);
-        
-        // Show success message
-        const btn = event.target;
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '✅ Copied!';
-        btn.style.background = 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)';
-        
-        setTimeout(() => {
-            btn.innerHTML = originalText;
-            btn.style.background = type === 'link' ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)';
-        }, 2000);
-        
+
+        // Show success message (only if we have the button that was clicked)
+        if (btn) {
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '✅ Copied!';
+            btn.style.background = 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)';
+
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.background = type === 'link' ? 'linear-gradient(135deg, #4CAF50 0%, #45a049 100%)' : 'linear-gradient(135deg, #2196F3 0%, #1976D2 100%)';
+            }, 2000);
+        } else {
+            alert('Copied to clipboard!');
+        }
+
     } catch (error) {
         // Fallback for older browsers
         const textArea = document.createElement('textarea');
@@ -1004,7 +1091,11 @@ function checkAllReady() {
         return;
     }
     
-    const participantList = Object.values(participants).filter(p => p != null && typeof p === 'object');
+    // Only consider people who are currently online — someone who joined and
+    // left without readying up should not block the auction from starting.
+    const participantList = Object.values(participants).filter(
+        p => p != null && typeof p === 'object' && p.online !== false
+    );
     
     if (participantList.length === 0) {
         console.log('No valid participants');
@@ -1066,10 +1157,12 @@ window.startAuction = async function() {
     speak('The auction has begun! Let the bidding start!');
 }
 
-function startAuctionTimer() {
+function startAuctionTimer(syncedBidTime) {
     stopAuctionTimer();
-    timeRemaining = 15;
-    lastBidTime = Date.now();
+    // Count down from the actual (shared) bid time so every client agrees on
+    // how much time is left, instead of each resetting to its own clock.
+    lastBidTime = syncedBidTime || Date.now();
+    timeRemaining = Math.max(0, 15 - Math.floor((Date.now() - lastBidTime) / 1000));
     updateTimerDisplay();
     
     auctionTimer = setInterval(() => {
@@ -1109,6 +1202,27 @@ function updateTimerDisplay() {
 
 async function autoSellPlayer() {
     if (!currentPlayerOnAuction || !currentRoomId || auctionResolving) return;
+
+    // ⭐ Only the HOST resolves a sale and touches team purses.
+    // Every client runs its own countdown timer, so if non-hosts also ran the
+    // sale logic they would each subtract the price from their own copy of the
+    // teams and write it back — cutting the purse more than once for a single
+    // player. Non-hosts just stop their timer and wait for the host's result
+    // to sync down.
+    if (!isHost) {
+        stopAuctionTimer();
+        return;
+    }
+
+    // ⭐ Deduct at most once per player. If this player is already sold
+    // (e.g. the host clicked "Sold" and the timer fired right after), stop
+    // before touching any purse.
+    const existingPlayer = players.find(p => Number(p.id) === Number(currentPlayerOnAuction.id));
+    if (existingPlayer && existingPlayer.status === 'sold') {
+        stopAuctionTimer();
+        return;
+    }
+
     auctionResolving = true;
     console.log("⏰ Auto-sell triggered for:", currentPlayerOnAuction.name);
 
@@ -1268,10 +1382,17 @@ function showTeamDetails(team) {
     modal.style.cssText = 'position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 9999; display: flex; justify-content: center; align-items: center;';
     
     let playersHTML = '<p style="color: #666; text-align: center;">No players bought yet</p>';
-    
-    if (team.players.length > 0) {
+
+    // Firebase drops empty arrays and can return arrays as objects, so normalize.
+    const teamPlayers = Array.isArray(team.players)
+        ? team.players
+        : (team.players ? Object.values(team.players) : []);
+    const teamPurse = Number(team.purse || 0);
+    const teamSpent = Number(team.spent || 0);
+
+    if (teamPlayers.length > 0) {
         playersHTML = '<div style="max-height: 400px; overflow-y: auto;">';
-        team.players.forEach(p => {
+        teamPlayers.forEach(p => {
             playersHTML += `
                 <div style="padding: 12px; margin: 8px 0; background: rgba(0,0,0,0.5); border-radius: 8px; border-left: 4px solid #d4af37;">
                     <strong style="color: #d4af37; font-size: 1.1em;">${p.name}</strong>
@@ -1294,15 +1415,15 @@ function showTeamDetails(team) {
                 </div>
                 <div style="display: flex; justify-content: space-between; margin: 8px 0;">
                     <span style="color: #888;">Purse Remaining:</span>
-                    <strong style="color: ${team.purse < 20 ? '#ff4444' : '#4CAF50'};">₹${team.purse.toFixed(1)}Cr</strong>
+                    <strong style="color: ${teamPurse < 20 ? '#ff4444' : '#4CAF50'};">₹${teamPurse.toFixed(1)}Cr</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin: 8px 0;">
                     <span style="color: #888;">Amount Spent:</span>
-                    <strong style="color: #fff;">₹${team.spent.toFixed(1)}Cr</strong>
+                    <strong style="color: #fff;">₹${teamSpent.toFixed(1)}Cr</strong>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin: 8px 0;">
                     <span style="color: #888;">Total Players:</span>
-                    <strong style="color: #fff;">${team.players.length}</strong>
+                    <strong style="color: #fff;">${teamPlayers.length}</strong>
                 </div>
             </div>
             <h3 style="color: #d4af37; margin-bottom: 15px;">Squad:</h3>
@@ -1420,7 +1541,7 @@ async function selectPlayer(player) {
     });
     
     displayCurrentPlayer();
-    startAuctionTimer();
+    startAuctionTimer(lastBidTime);
     
     speak(`Now on auction: ${player.name}, ${player.role} from ${player.country}.`);
 }
@@ -1843,6 +1964,10 @@ window.downloadTeamPDF = function(teamName) {
     </html>`;
 
     const win = window.open('', '_blank');
+    if (!win) {
+        alert('Please allow pop-ups for this site to download the squad PDF.');
+        return;
+    }
     win.document.write(html);
     win.document.close();
     win.focus();
@@ -1854,32 +1979,56 @@ window.placeBid = async function() {
         alert('No player on auction!');
         return;
     }
-    
+
     if (!currentUser) {
         alert('Please login first!');
         return;
     }
-    
+
     const team = teams.find(t => t.name === currentUser.team);
+    if (!team) { alert('Your team was not found!'); return; }
+
     const bidIncrement = 0.5;
-    const newBid = currentBid + bidIncrement;
-    
-    if (team.purse < newBid) {
-        alert(`Insufficient purse! You have ₹${team.purse.toFixed(1)}Cr remaining.`);
-        return;
+    const playerRef = ref(database, `rooms/${currentRoomId}/currentPlayer`);
+
+    // ⭐ Atomic bid. Two teams bidding at the same instant used to overwrite
+    // each other because the new bid was computed from a local copy. A
+    // transaction re-reads the authoritative value and only commits if the
+    // bid is still valid — so no bid is ever silently lost.
+    try {
+        const result = await runTransaction(playerRef, (cp) => {
+            if (!cp) return;                                   // player already resolved → abort
+            if (cp.highestBidder === currentUser.team) return;  // can't outbid yourself → abort
+            const serverBid = Number(cp.currentBid) || 0;
+            const nextBid = serverBid + bidIncrement;
+            if (Number(team.purse) < nextBid) return;           // can't afford → abort
+            cp.currentBid = nextBid;
+            cp.highestBidder = currentUser.team;
+            cp.lastBidTime = Date.now();
+            return cp;
+        });
+
+        if (!result.committed) {
+            const cp = result.snapshot.val();
+            if (!cp) { alert('This player is no longer on auction.'); return; }
+            if (cp.highestBidder === currentUser.team) return;   // already top bid — ignore quietly
+            const needed = (Number(cp.currentBid) || 0) + bidIncrement;
+            if (Number(team.purse) < needed) {
+                alert(`Insufficient purse! You have ₹${Number(team.purse).toFixed(1)}Cr, need ₹${needed.toFixed(1)}Cr.`);
+            }
+            return;
+        }
+
+        const cp = result.snapshot.val();
+        currentBid = Number(cp.currentBid);
+        highestBidder = cp.highestBidder;
+        lastBidTime = cp.lastBidTime;
+
+        speak(`${currentUser.team} bids ${currentBid.toFixed(1)} crore rupees!`);
+    } catch (e) {
+        console.error('placeBid error:', e);
+        alert('Bid failed — please try again.');
     }
-    
-    currentBid = newBid;
-    highestBidder = currentUser.team;
-    lastBidTime = Date.now();
-    
-    await update(ref(database, `rooms/${currentRoomId}/currentPlayer`), {
-        currentBid: currentBid,
-        highestBidder: highestBidder,
-        lastBidTime: lastBidTime
-    });
-    
-    speak(`${currentUser.team} bids ${currentBid.toFixed(1)} crore rupees!`);
 }
 
 window.soldPlayer = async function() {
@@ -1893,9 +2042,13 @@ window.soldPlayer = async function() {
         if (!highestBidder) { alert('No bids placed yet!'); return; }
         
         const team = teams.find(t => t.name === highestBidder);
-        if (!team) { console.error("❌ Invalid highestBidder:", highestBidder); return; }
-        if (Number(team.purse) < Number(currentBid)) { alert('Insufficient purse!'); return; }
-        
+        if (!team) { console.error("❌ Invalid highestBidder:", highestBidder); auctionResolving = false; return; }
+        if (Number(team.purse) < Number(currentBid)) { alert('Insufficient purse!'); auctionResolving = false; return; }
+
+        // ⭐ Deduct at most once per player. If already sold, don't cut the purse again.
+        const alreadySold = players.find(p => Number(p.id) === Number(currentPlayerOnAuction.id));
+        if (alreadySold && alreadySold.status === 'sold') { stopAuctionTimer(); auctionResolving = false; return; }
+
         stopAuctionTimer();
         
         // Update team
@@ -2026,27 +2179,9 @@ function resetAuction() {
     document.getElementById('noPlayerMessage').style.display = 'block';
 }
 
-async function addToHistory(message, type) {
-    const historyEntry = { 
-        message, 
-        type, 
-        time: new Date().toLocaleTimeString(),
-        timestamp: Date.now()
-    };
-    
-    auctionHistory.unshift(historyEntry);
-    
-    if (auctionHistory.length > 100) {
-        auctionHistory = auctionHistory.slice(0, 100);
-    }
-    
-    await update(ref(database, `rooms/${currentRoomId}`), {
-        history: auctionHistory
-    });
-}
-
 function renderHistory() {
     const container = document.getElementById('auctionHistory');
+    if (!container) return;
     container.innerHTML = '';
     
     if (auctionHistory.length === 0) {
@@ -2084,7 +2219,7 @@ function updateStats() {
     playersSoldEl.textContent = players.filter(p => p.status === 'sold').length;
     playersRemainingEl.textContent = players.filter(p => (p.status || 'unsold') === 'unsold').length;
     
-    const totalSpent = teams.reduce((sum, team) => sum + team.spent, 0);
+    const totalSpent = teams.reduce((sum, team) => sum + (Number(team.spent) || 0), 0);
     totalSpentEl.textContent = `₹${totalSpent.toFixed(1)}Cr`;
 }
 
@@ -2095,13 +2230,6 @@ function updatePurse() {
             document.getElementById('currentPurse').textContent = `₹${team.purse.toFixed(1)}Cr`;
         }
     }
-}
-
-async function saveToFirebase() {
-    if (!currentRoomId) return;
-    // Use set() on the specific fields for atomic writes
-    await set(ref(database, `rooms/${currentRoomId}/teams`), teams);
-    await set(ref(database, `rooms/${currentRoomId}/currentSet`), players);
 }
 
 function speak(text) {
@@ -2116,8 +2244,9 @@ function speak(text) {
 
 window.toggleVoice = function() {
     voiceEnabled = !voiceEnabled;
+    if (!voiceEnabled && 'speechSynthesis' in window) speechSynthesis.cancel();
     const btn = document.querySelector('.voice-btn');
-    btn.textContent = voiceEnabled ? '🔊' : '🔇';
+    if (btn) btn.textContent = voiceEnabled ? '🔊' : '🔇';
 }
 
 window.refreshData = function() {
